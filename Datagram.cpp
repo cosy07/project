@@ -650,15 +650,21 @@ void Datagram::FromMasterToGateway() {
 								{
 									if (recvData(temp_buf) && _rxHeaderTo == _thisAddress && _rxHeaderType == R2_REQUEST_ACK_TYPE)
 									{
-										if (_rxHeaderData == 1)
-										{
-											//2hop짜리가 스페어도 같이 보냄
-										}
 										Serial.println("receiving");
 										receivingR2Ack = true;
 										addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);
 										printRoutingTable();
 										indirectAddress[indirectAdrIdx++] = _rxHeaderFrom;
+										if (_rxHeaderData == 1)
+										{
+											//2hop짜리가 스페어도 같이 보냄
+											indirectAddress[indirectAdr++] = 1;
+											indirectAddress[indirectAdr++] = word(temp_buf[0], temp_buf[1]);
+										}
+										els
+										{
+											indirectAddress[indirectAdr++] = 0;
+										}
 										break;
 									}
 								}
@@ -667,7 +673,7 @@ void Datagram::FromMasterToGateway() {
 						if (receivingR2Ack)
 						{
 							bufIdx = 0;
-							for (i = 1; i < indirectAdrIdx; i++)
+							for (i = 0; i < indirectAdrIdx; i++)
 							{
 								temp_buf[bufIdx] = highByte(indirectAddress[i]);
 								bufIdx++;
@@ -942,6 +948,7 @@ void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
 {
 	//================================================================================================================================================
 	//row2 : 1hop인 master들에게 아직 라우팅이 안된 노드들의 주소를 보내서 근처에 노드들이 있는지 물어봄
+	uint16_t temp_addr;
 	Serial.println("[row2]");
 	for (i = 0; i < receivedMasterNum[0]; i++)
 	{
@@ -988,22 +995,29 @@ void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
 					}
 					if (_rxHeaderTo == _thisAddress && _rxHeaderType == R2_REQUEST_ACK_TYPE && _rxHeaderFrom == receivedMaster[0][i] && _rxHeaderSource > 0 && _rxHeaderSource <= NUM_OF_CONTRL)
 					{
-						addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, 2);
-						receivedMaster[1][receivedMasterNum[1]] = _rxHeaderSource;
-						receivedMasterNum[1]++;
-						checkReceive[_rxHeaderSource] = true;
-						printRecvPacketHeader();
-						if (_rxHeaderData > 1)
+						//addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, 2);
+						//receivedMaster[1][receivedMasterNum[1]] = _rxHeaderSource;
+						//receivedMasterNum[1]++;
+						//checkReceive[_rxHeaderSource] = true;
+						//printRecvPacketHeader();
+						bufIdx = 0;
+						for (i = 0; i < _rxHeaderData; i++)
 						{
-							bufIdx = 0;
-							for (i = 1; i < _rxHeaderData; i++)
+							addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
+							addRouteTo(addr, _rxHeaderFrom, Valid, 2);
+							receivedMaster[1][receivedMasterNum[1]] = addr;
+							receivedMasterNum[1]++;
+							checkReceive[addr] = true;
+							bufIdx += 2;
+							temp_addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
+							i++;
+							bufIdx += 2;
+							if (temp_addr == 1)
 							{
-								addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
+								temp_addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
 								bufIdx += 2;
-								addRouteTo(addr, _rxHeaderFrom, Valid, 2);
-								receivedMaster[1][receivedMasterNum[1]] = addr;
-								receivedMasterNum[1]++;
-								checkReceive[addr] = true;
+								addRouteTo(addr, temp_addr, Valid, 2);
+								i++;
 							}
 						}
 						printRoutingTable();
