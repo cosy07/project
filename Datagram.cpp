@@ -417,120 +417,21 @@ void Datagram::clearRoutingTable()
 //gateway address : 0x0000
 //Master address : 0x0001부터
 void Datagram::FromGatewayToMaster() {
-
+	uint16_t address;
+	uint8_t highAddress, lowAddress;
 	Serial.println("FromGatewayToMaster");
 	Serial.println("[row1]");
 	//row1 : 모든 master들에게 한번씩 보내봄(1hop인 애들 이 때 체크)
-	for (i = 1; i <= NUM_OF_CONTRL; i++)
+	while (receivedMasterNum[0] == 0)
 	{
-		Serial.print("send");
-		Serial.println(i);
-		send(_thisAddress, i, _thisAddress, i, REQUEST_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));//from, to, src, dst, type, data, flags, seqnum
-		startTime = millis();
-		while ((millis() - startTime) < TIME_TERM * 2)
-		{
-			SetReceive();
-			if (available())
-			{
-				if (recvData(temp_buf) && (_rxHeaderTo == BROADCAST_ADDRESS || _rxHeaderTo == _thisAddress))
-				{
-					printRecvPacketHeader();
-					if (_rxHeaderType == REQUEST_ACK_TYPE && _rxHeaderSource == i && _rxHeaderDestination == _thisAddress && _rxHeaderFrom == i)//조건에 맞는다면 걔네는 1hop인 master들
-					{
-						Serial.println("receive row1 request_ack");
-						//receivedMasterNum(크기가 2인 배열) : hop count가 n인 애들의 개수(n이 홀수면 idx가 0, n이 짝수면 idx가 1)
-						//receivedMaster(2차원 배열) : hop count가 n인 애들의 주소를 넣음(n이 홀수면 receivedCotroller[0] 사용, n이 짝수면 receivedMaster[1] 사용)
-						//checkReceive : routing이 된 주소를 true로 표시
-						receivedMaster[0][receivedMasterNum[0]] = _rxHeaderFrom;
-						addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);//dst, next, state, hop count
-						checkReceive[_rxHeaderFrom] = true;
-						printRoutingTable();
-						receivedMasterNum[0]++;
-						break;
-					}
-				}
-			}
-		}
-	}
-	for (i = 1; i <= NUM_OF_CONTRL; i++)
-	{
-		if (!checkReceive[i])
-		{
-			unreceivedNum++;
-			Serial.print("unreceive : ");
-			Serial.println(i);
-		}
-		else if (i == NUM_OF_CONTRL && unreceivedNum == 0)
+		if (SendRoutingRequestTo1stRow() < 0)
 			return;
 	}
-	//================================================================================================================================================
-	//row2 : 1hop인 master들에게 아직 라우팅이 안된 애들의 주소를 보내서 근처에 걔네들이 있는지 물어봄
-	Serial.println("[row2]");
-	for (i = 0; i < receivedMasterNum[0]; i++)
-	{
-		unreceivedNum = 0;
-		bufIdx = 0;
-		for (j = 1; j <= NUM_OF_CONTRL; j++)//routing이 안된 애들의 주소를 table을 뒤져서 알아냄
-		{
-			if (!checkReceive[j])
-			{
-				unreceivedNum++;
-				Serial.print("unreceive : ");
-				Serial.println(j);
-				//routing이 안된 애들의 주소를 전송되는 배열에 넣는다.
-				temp_buf[bufIdx] = highByte(j);
-				bufIdx++;
-				temp_buf[bufIdx] = lowByte(j);
-				bufIdx++;
-			}
-			else if (j == NUM_OF_CONTRL && bufIdx == 0)
-				return;
-		}
-		Serial.print("send : ");
-		Serial.println(receivedMaster[0][i]);
-		send(_thisAddress, receivedMaster[0][i], _thisAddress, receivedMaster[0][i], R2_REQUEST_TYPE, unreceivedNum, NONE, NONE, temp_buf, sizeof(temp_buf));//from, to, src, dst, type, data, flags, seqnum
-		//1hop인 애들한테 보냄
-		Serial.println(word(temp_buf[0], temp_buf[1]));
-		startTime = millis();
-		timeLimit = unreceivedNum * 2 *TIME_TERM * 2;
-		while ((millis() - startTime) < timeLimit)
-		{
-			SetReceive();
-			if (available())
-			{
-				if (recvData(temp_buf))
-				{
-					if (checkReceive[_rxHeaderSource] == true && _rxHeaderSource != _thisAddress)
-					{
-						addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
-					}
-					if (_rxHeaderTo == _thisAddress && _rxHeaderType == R2_REQUEST_ACK_TYPE && _rxHeaderFrom == receivedMaster[0][i] && _rxHeaderSource > 0 && _rxHeaderSource <= NUM_OF_CONTRL)
-					{
-						addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, 2);
-						receivedMaster[1][receivedMasterNum[1]] = _rxHeaderSource;
-						receivedMasterNum[1]++;
-						checkReceive[_rxHeaderSource] = true;
-						printRecvPacketHeader();
-						if (_rxHeaderData > 1)
-						{
-							bufIdx = 0;
-							for (i = 1; i < _rxHeaderData; i++)
-							{
-								addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
-								bufIdx += 2;
-								addRouteTo(addr, _rxHeaderFrom, Valid, 2);
-								receivedMaster[1][receivedMasterNum[1]] = addr;
-								receivedMasterNum[1]++;
-								checkReceive[addr] = true;
-							}
-						}
-						printRoutingTable();
-						break;
-					}
-				}
-			}
-		}
-	}
+	// 모든 노드들이 1hop 거리 일경우
+
+	if (SendRoutingRequestTo1stRowFor2ndRow() < 0)
+		return;
+
 	unreceivedNum = 0;
 	for (i = 1; i <= NUM_OF_CONTRL; i++)
 	{
@@ -688,14 +589,21 @@ void Datagram::FromMasterToGateway() {
 						if (_driver.rssi >= candidateRSSI)
 						{
 							Serial.println("receive propagation");
+							candidateRSSI2 = candidateRSSI;
+							candidateAddress2 = candidateAddress;
 							candidateAddress = _rxHeaderFrom;
 							candidateRSSI = _driver.rssi;
 							Serial.print("My choice : ");
 							Serial.println(_rxHeaderFrom);
 						}
+						else if (_driver.rssi >= candidateRSSI2)
+						{
+							candidateAddress2 = _rxHeaderFrom;
+							candidateRSSI2 = _driver.rssi;
+						}
 					}
 				}
-				if (getRouteTo(_rxHeaderSource)->next_hop[0] != 0)
+				if (getRouteTo(_rxHeaderSource)->next_hop[0] != 0)//수정하기
 					addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
 				if (_rxHeaderTo == _thisAddress)
 				{
@@ -717,7 +625,7 @@ void Datagram::FromMasterToGateway() {
 					{
 
 						Serial.println("receive R2 request and I succeed R1");
-						count = _rxHeaderData;
+						count = _rxHeaderData;  // Guin number of unknown node
 						indirectAdrIdx = 0;
 						bufIdx = 0;
 						for (i = 0; i < count; i++)
@@ -742,6 +650,10 @@ void Datagram::FromMasterToGateway() {
 								{
 									if (recvData(temp_buf) && _rxHeaderTo == _thisAddress && _rxHeaderType == R2_REQUEST_ACK_TYPE)
 									{
+										if (_rxHeaderData == 1)
+										{
+											//2hop짜리가 스페어도 같이 보냄
+										}
 										Serial.println("receiving");
 										receivingR2Ack = true;
 										addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);
@@ -774,7 +686,14 @@ void Datagram::FromMasterToGateway() {
 							addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, 2);
 							printRoutingTable();
 							//from, to, src, dst, type, data, flags, seqnum
-							send(_thisAddress, _rxHeaderFrom, _thisAddress, GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
+							if (candidateAddress2 != 0)
+							{
+								temp_buf[0] = highByte(candidateAddress2);
+								temp_buf[1] = lowByte(candidateAddress2);
+								send(_thisAddress, _rxHeaderFrom, _thisAddress, GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, 1, NONE, NONE, temp_buf, sizeof(temp_buf));
+							}
+							else
+								send(_thisAddress, _rxHeaderFrom, _thisAddress, GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 							_receivedRequestFlag = true;
 						}
 					}/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -860,7 +779,7 @@ void Datagram::FromMasterToGateway() {
 					}
 					else if (_rxHeaderType == CHECK_ROUTING)
 					{
-						if(_rxHeaderDestination == _thisAddress)
+						if (_rxHeaderDestination == _thisAddress)
 							break;
 						else
 						{
@@ -934,5 +853,165 @@ void Datagram::printRecvPacketHeader()
 	Serial.println(_rxHeaderFlags);
 	Serial.print("_rxHeaderSeqNum : ");
 	Serial.println(_rxHeaderSeqNum);
+}
+
+/****************************************************************
+*FUNCTION NAME:  convertAddress(uint8_t gatewayNumber, uint8_t masterNumber,uint8_t slaveNumber)
+*FUNCTION     :  2 바이트 형식의 주소로 변환
+*INPUT        : 게이트 번호, 매스터 노드 번호, 슬레이브 번호
+*OUTPUT       : 2바이트  노드 주소
+****************************************************************/
+uint16_t Datagram::convertAddress(uint8_t gatewayNumber, uint8_t masterNumber, uint8_t slaveNumber)
+{
+	if (gatewayNumber > 64 || masterNumber > 31 || slaveNumber > 16)
+		return -1;
+
+	uint16_t address;
+	address = gatewayNumber << 5;
+	address = address | masterNumber;
+	address = address << 5;
+	address = address | slaveNumber;
+	return address;
+
+}
+/****************************************************************
+*FUNCTION NAME:  SendRoutingRequestTo1stRow( )
+*FUNCTION     : Gateway가 direct하게 연결할수 있는 매스터 노드들에게 라우팅 요청 메시지를 전송하고,
+응답을 기다린다.
+- 응답이 도착하면, 라우팅 테이블에 삽입하며,
+*INPUT        : none
+*OUTPUT       : 1 hop 보다 먼 노드들의 갯수, 모든 노드들이 1hop 경우 -1 return
+****************************************************************/
+void Datagram::SendRoutingRequestTo1stRow()
+{
+	uint16_t address_i;
+	for (i = 1; i <= NUM_OF_CONTRL; i++)
+	{
+		Serial.print("send");
+		Serial.println(i);
+		address_i = convertAddress(gatewayNumber, i, 0);
+		send(_thisAddress, address_i, _thisAddress, address_i, REQUEST_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));//from, to, src, dst, type, data, flags, seqnum
+		startTime = millis();
+		while ((millis() - startTime) < TIME_TERM * 2)
+		{
+			SetReceive();
+			if (available())
+			{
+				if (recvData(temp_buf) && (_rxHeaderTo == BROADCAST_ADDRESS || _rxHeaderTo == _thisAddress))
+				{
+					printRecvPacketHeader();
+					if (_rxHeaderType == REQUEST_ACK_TYPE && _rxHeaderSource == address_i && _rxHeaderDestination == _thisAddress && _rxHeaderFrom == address_i)//조건에 맞는다면 걔네는 1hop인 master들
+					{
+						Serial.println("receive row1 request_ack");
+						//receivedMasterNum(크기가 2인 배열) : hop count가 n인 애들의 개수(n이 홀수면 idx가 0, n이 짝수면 idx가 1)
+						//receivedMaster(2차원 배열) : hop count가 n인 애들의 주소를 넣음(n이 홀수면 receivedCotroller[0] 사용, n이 짝수면 receivedMaster[1] 사용)
+						//checkReceive : routing이 된 주소를 true로 표시
+						receivedMaster[0][receivedMasterNum[0]] = _rxHeaderFrom;
+						addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);//dst, next, state, hop count
+						checkReceive[_rxHeaderFrom] = true;
+						printRoutingTable();
+						receivedMasterNum[0]++;
+						break;
+					}
+				}
+			}
+		}
+	}
+	for (i = 1; i <= NUM_OF_CONTRL; i++)
+	{
+		if (!checkReceive[i])
+		{
+			unreceivedNum++;
+			Serial.print("unreceive : ");
+			Serial.println(i);
+		}
+		else if (i == NUM_OF_CONTRL && unreceivedNum == 0)
+			return -1;
+	}
+	return unreceivedNum;
+
+}
+/****************************************************************
+*FUNCTION NAME:  SendRoutingRequestTo1stRowFor2ndRow( )
+*FUNCTION     :  Gateway가  1 hop 노드들에게, 라우팅이 안된 노드들의 주소를 페이로드에 포함하여 전송함.
+
+*INPUT        : none
+*OUTPUT       :
+****************************************************************/
+void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
+{
+	//================================================================================================================================================
+	//row2 : 1hop인 master들에게 아직 라우팅이 안된 노드들의 주소를 보내서 근처에 노드들이 있는지 물어봄
+	Serial.println("[row2]");
+	for (i = 0; i < receivedMasterNum[0]; i++)
+	{
+		unreceivedNum = 0;
+		bufIdx = 0;
+		for (j = 1; j <= NUM_OF_CONTRL; j++)//routing이 안된 노드들의 주소를 table을 뒤져서 알아냄
+		{
+			if (!checkReceive[j])
+			{
+				unreceivedNum++;
+				Serial.print("unreceive : ");
+				Serial.println(j);
+				address = convertAddress(gatewayNumber, j, 0);
+				//routing이 안된 애들의 주소를 전송되는 배열에 넣는다.
+
+				highAddress = (uint8_t)(address >> 8);
+				lowAddress = (uint8_t)(0x00FF & address);
+
+				temp_buf[bufIdx] = highAddress;
+				bufIdx++;
+				temp_buf[bufIdx] = lowAddress;
+				bufIdx++;
+			}
+			else if (j == NUM_OF_CONTRL && bufIdx == 0)
+				return;
+		}
+		Serial.print("send : ");
+		Serial.println(receivedMaster[0][i]);
+		send(_thisAddress, receivedMaster[0][i], _thisAddress, receivedMaster[0][i], R2_REQUEST_TYPE, unreceivedNum, NONE, NONE, temp_buf, sizeof(temp_buf));//from, to, src, dst, type, data, flags, seqnum
+																																							 //1hop인 애들한테 보냄
+		Serial.println(word(temp_buf[0], temp_buf[1]));
+		startTime = millis();
+		timeLimit = unreceivedNum * 2 * TIME_TERM * 2;
+		while ((millis() - startTime) < timeLimit)
+		{
+			SetReceive();
+			if (available())
+			{
+				if (recvData(temp_buf))
+				{
+					if (checkReceive[_rxHeaderSource] == true && _rxHeaderSource != _thisAddress)
+					{
+						addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
+					}
+					if (_rxHeaderTo == _thisAddress && _rxHeaderType == R2_REQUEST_ACK_TYPE && _rxHeaderFrom == receivedMaster[0][i] && _rxHeaderSource > 0 && _rxHeaderSource <= NUM_OF_CONTRL)
+					{
+						addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, 2);
+						receivedMaster[1][receivedMasterNum[1]] = _rxHeaderSource;
+						receivedMasterNum[1]++;
+						checkReceive[_rxHeaderSource] = true;
+						printRecvPacketHeader();
+						if (_rxHeaderData > 1)
+						{
+							bufIdx = 0;
+							for (i = 1; i < _rxHeaderData; i++)
+							{
+								addr = word(temp_buf[bufIdx], temp_buf[bufIdx + 1]);
+								bufIdx += 2;
+								addRouteTo(addr, _rxHeaderFrom, Valid, 2);
+								receivedMaster[1][receivedMasterNum[1]] = addr;
+								receivedMasterNum[1]++;
+								checkReceive[addr] = true;
+							}
+						}
+						printRoutingTable();
+						break;
+					}
+				}
+			}
+		}
+	}
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

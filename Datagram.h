@@ -9,7 +9,7 @@
 
 /// the default retry timeout in milliseconds
 #define DEFAULT_TIMEOUT 100
- 
+
 
 /// The default number of retries
 #define DEFAULT_RETRIES 3
@@ -62,13 +62,13 @@
 class  Datagram
 {
 public:
-     Datagram(ELECHOUSE_CC1120& driver, uint16_t thisAddress = 0);
-    void	init();
-    void 	init(byte ch);
-    void 	SetReceive(void);
-    void 	setThisAddress(uint16_t thisAddress);
-    void 	setHeaderTo(uint16_t to);
-    void 	setHeaderFrom(uint16_t from);
+	Datagram(ELECHOUSE_CC1120& driver, uint16_t thisAddress = 0);
+	void	init();
+	void 	init(byte ch);
+	void 	SetReceive(void);
+	void 	setThisAddress(uint16_t thisAddress);
+	void 	setHeaderTo(uint16_t to);
+	void 	setHeaderFrom(uint16_t from);
 	void 	setHeaderSource(uint16_t address);
 	void	setHeaderDestination(uint16_t address);
 	void 	setHeaderType(uint8_t type);
@@ -76,14 +76,14 @@ public:
 	void    setHeaderSeqNum(uint8_t seq);
 	void    setHeaderFlags(uint8_t flags);
 
-   	uint16_t        headerTo( );
-    uint16_t        headerFrom( );
-    uint16_t        headerSource( );
-	uint16_t        headerDestination( );
-    uint8_t         headerType( );
-   	uint8_t         headerData( );
-	uint8_t   		headerSeqNum( );
-	uint8_t   		headerFlags( );
+	uint16_t        headerTo();
+	uint16_t        headerFrom();
+	uint16_t        headerSource();
+	uint16_t        headerDestination();
+	uint8_t         headerType();
+	uint8_t         headerData();
+	uint8_t   		headerSeqNum();
+	uint8_t   		headerFlags();
 
 	bool  	       waitAvailableTimeout(uint16_t timeout);
 	bool           available();
@@ -92,80 +92,86 @@ public:
 	void 	       setRetries(uint8_t retries);
 	uint8_t	       retries();
 	void   	       acknowledge();
-	void           MainSendControlToSlave( );
-	void           RCSendControlToMain( );
+	void           MainSendControlToSlave();
+	void           RCSendControlToMain();
 	void           resetRetransmissions();
 
 
-    void           sendto(uint8_t* buf, uint8_t len, uint16_t address);
+	void           sendto(uint8_t* buf, uint8_t len, uint16_t address);
 	byte           recvData(uint8_t* buf);
- /*
-    bool            waitPacketSent();
-    bool            waitPacketSent(uint16_t timeout);
- 
-*/
+	/*
+	bool            waitPacketSent();
+	bool            waitPacketSent(uint16_t timeout);
 
-    /// Defines the structure of the RHRouter message header, used to keep track of end-to-end delivery parameters
-    typedef struct
-    {
-	uint16_t    dest;       ///< Destination node address
-	uint16_t    source;     ///< Originator node address
-	uint8_t    hops;       ///< Hops traversed so far
-	uint8_t    id;         ///< Originator sequence number
-	uint8_t    flags;      ///< Originator flags
-	// Data follows, Length is implicit in the overall message length
-    } RoutedMessageHeader;
+	*/
 
-    /// Defines the structure of a Router message
-    typedef struct
-    {
-	RoutedMessageHeader header;    ///< end-to-end delivery header
-	uint8_t             data[ROUTER_MAX_MESSAGE_LEN]; ///< Application payload data
-    } RoutedMessage;
+	/// Defines the structure of the RHRouter message header, used to keep track of end-to-end delivery parameters
+	typedef struct
+	{
+		uint16_t    dest;       ///< Destination node address
+		uint16_t    source;     ///< Originator node address
+		uint8_t    hops;       ///< Hops traversed so far
+		uint8_t    id;         ///< Originator sequence number
+		uint8_t    flags;      ///< Originator flags
+							   // Data follows, Length is implicit in the overall message length
+	} RoutedMessageHeader;
 
-    /// Values for the possible states for routes
-    typedef enum
-    {
-	Invalid = 0,           ///< No valid route is known
-	Discovering,           ///< Discovering a route (not currently used)
-	Valid                  ///< Route is valid
-    } RouteState;
+	/// Defines the structure of a Router message
+	typedef struct
+	{
+		RoutedMessageHeader header;    ///< end-to-end delivery header
+		uint8_t             data[ROUTER_MAX_MESSAGE_LEN]; ///< Application payload data
+	} RoutedMessage;
 
-    /// Defines an entry in the routing table
-    typedef struct
-    {
-	uint16_t      dest;      ///< Destination node address
-	uint16_t      next_hop[2];  ///< Send via this next hop address
-	uint8_t      state;     ///< State of this route, one of RouteState
-	uint8_t		 hop;
-    } RoutingTableEntry;
+	/// Values for the possible states for routes
+	typedef enum
+	{
+		Invalid = 0,           ///< No valid route is known
+		Discovering,           ///< Discovering a route (not currently used)
+		Valid                  ///< Route is valid
+	} RouteState;
 
-    /// \param[in] thisAddress The address to assign to this node. Defaults to 0
+	/// Defines an entry in the routing table
+	typedef struct
+	{
+		uint16_t      dest;      ///< Destination node address
+		uint16_t      next_hop[2];  ///< Send via this next hop address
+		uint8_t      state;     ///< State of this route, one of RouteState
+		uint8_t		 hop;
+	} RoutingTableEntry;
 
-    void setMaxHops(uint8_t max_hops);
+	/// \param[in] thisAddress The address to assign to this node. Defaults to 0
 
- 
-    void addRouteTo(uint16_t  dest, uint16_t  next_hop, uint8_t state = Valid, uint8_t hop = 0);
+	void setMaxHops(uint8_t max_hops);
 
-   
-    RoutingTableEntry* getRouteTo(uint16_t  dest);
 
-  
-    bool deleteRouteTo(uint16_t  dest);
+	void addRouteTo(uint16_t  dest, uint16_t  next_hop, uint8_t state = Valid, uint8_t hop = 0);
 
- 
-    void retireOldestRoute();
 
-  
-    void clearRoutingTable();
+	RoutingTableEntry* getRouteTo(uint16_t  dest);
 
-   
-    void printRoutingTable();
+
+	bool deleteRouteTo(uint16_t  dest);
+
+
+	void retireOldestRoute();
+
+
+	void clearRoutingTable();
+
+
+	void printRoutingTable();
 
 
 	void FromGatewayToMaster();
 
 	void FromMasterToGateway();
+
+	void SendRoutingRequestTo1stRow();
+
+	void SendRoutingRequestTo1stRowFor2ndRow();
+
+	uint16_t convertAddress(uint8_t gatewayNumber, uint8_t masterNumber, uint8_t slaveNumber);
 
 	byte receiveInterrupt(byte*);
 
@@ -176,68 +182,70 @@ public:
 	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time);
 
 	void printRecvPacketHeader();
-	
+
 protected:
 
- //   static RoutedMessage _tmpMessage;
- 
-    RoutedMessage _tmpMessage;	
-	
+	//   static RoutedMessage _tmpMessage;
 
- 
-
- 
-    void 	deleteRoute(uint8_t index);
+	RoutedMessage _tmpMessage;
 
 
-    uint8_t 	_lastE2ESequenceNumber;
-
-    uint8_t     _max_hops;
-
-    /// Temporary mesage buffer
-
-   
-
-    /// Local routing table
-    RoutingTableEntry    _routes[ROUTING_TABLE_SIZE];
 
 
-    ELECHOUSE_CC1120&   _driver;	   /// The Driver we are to use
-    uint16_t         	_thisAddress;		/// The address of this node
-	uint16_t  			_rxHeaderTo ;
-  	uint16_t  			_rxHeaderFrom ;
-  	uint16_t  			_rxHeaderSource ;
-	uint16_t			_rxHeaderDestination ;
- 	uint8_t   			_rxHeaderType ;
-	uint8_t   			_rxHeaderData ;
-	uint8_t   			_rxHeaderFlags ;
-	uint8_t   			_rxHeaderSeqNum ;
 
-    /// Count of retransmissions we have had to send
-    uint32_t _retransmissions;
+	void 	deleteRoute(uint8_t index);
 
-    /// The last sequence number to be used
-    /// Defaults to 0
-    uint8_t _lastSequenceNumber;
 
-    // Retransmit timeout (milliseconds)
-    /// Defaults to 200
-    uint16_t _timeout;
+	uint8_t 	_lastE2ESequenceNumber;
 
-    // Retries (0 means one try only)
-    /// Defaults to 3
-   	 uint8_t _retries;
+	uint8_t     _max_hops;
 
-   	//=================================================================================
-   	//	2017-04-27 ver.1.1
+	/// Temporary mesage buffer
+
+
+
+	/// Local routing table
+	RoutingTableEntry    _routes[ROUTING_TABLE_SIZE];
+
+
+	ELECHOUSE_CC1120&   _driver;	   /// The Driver we are to use
+	uint16_t         	_thisAddress;		/// The address of this node
+	uint16_t  			_rxHeaderTo;
+	uint16_t  			_rxHeaderFrom;
+	uint16_t  			_rxHeaderSource;
+	uint16_t			_rxHeaderDestination;
+	uint8_t   			_rxHeaderType;
+	uint8_t   			_rxHeaderData;
+	uint8_t   			_rxHeaderFlags;
+	uint8_t   			_rxHeaderSeqNum;
+
+	/// Count of retransmissions we have had to send
+	uint32_t _retransmissions;
+
+	/// The last sequence number to be used
+	/// Defaults to 0
+	uint8_t _lastSequenceNumber;
+
+	// Retransmit timeout (milliseconds)
+	/// Defaults to 200
+	uint16_t _timeout;
+
+	// Retries (0 means one try only)
+	/// Defaults to 3
+	uint8_t _retries;
+
+	//=================================================================================
+	//	2017-04-27 ver.1.1
 	bool _receivedRequestFlag = false;
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
 	uint8_t receivedMasterNum[2] = { 0 };
 	uint16_t receivedMaster[2][NUM_OF_CONTRL];
 	uint16_t indirectAddress[10];
 	uint8_t indirectAdrIdx = 0;
-	uint16_t candidateAddress;
+	uint16_t candidateAddress = 0;
 	uint8_t candidateRSSI = 0;
+	uint16_t candidateAddress2 = 0;
+	uint8_t candidateRSSI2 = 0;
 
 
 
@@ -250,7 +258,7 @@ protected:
 	byte i;
 	uint16_t j;
 	uint16_t dest;
-
+	uint8_tgatewayNumber = 0;
 
 	unsigned long startTime;
 	uint8_t unreceivedNum = 0;
