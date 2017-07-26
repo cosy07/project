@@ -240,8 +240,8 @@ protected:
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
 	uint8_t receivedMasterNum[2] = { 0 };
 	uint16_t receivedMaster[2][NUM_OF_CONTRL];
-	uint16_t indirectAddress[10];
-	uint8_t indirectAdrIdx = 0;
+
+
 	uint16_t candidateAddress = 0;
 	uint8_t candidateRSSI = 0;
 	uint16_t candidateAddress2 = 0;
@@ -252,9 +252,7 @@ protected:
 	byte temp_buf[20];
 	uint8_t bufIdx = 0;
 	uint8_t receivedType = 0;//To avoid receiving from Master that has same hop
-	bool receivingR2Ack = false;
-	int count;
-	byte temp[20];
+
 	byte i;
 	uint16_t j;
 	uint16_t dest;
