@@ -413,7 +413,7 @@ void Datagram::clearRoutingTable()
 *INPUT        :rxBuffer: buffer to store data
 *OUTPUT       :size of data received
 ****************************************************************/
-//라우팅에는 ack을 받지 않음(원래 멀리있는 노드인데 ack을 못받았다고 해서 계속 재전송 해버리면 괜히 시간낭비)
+//라우팅에는 ack을 받지 않음(원래 멀리있는 애인데 ack을 못받았다고 해서 계속 재전송 해버리면 괜히 시간낭비)
 //gateway address : 0x0000
 //Master address : 0x0001부터
 void Datagram::FromGatewayToMaster() {
@@ -421,88 +421,20 @@ void Datagram::FromGatewayToMaster() {
 	uint8_t highAddress, lowAddress;
 	Serial.println("FromGatewayToMaster");
 	Serial.println("[row1]");
-	//row1 : 모든 master들에게 한번씩 보내봄(1hop인 노드들 이 때 체크)
+	//row1 : 모든 master들에게 한번씩 보내봄(1hop인 애들 이 때 체크)
 	while (receivedMasterNum[0] == 0)
 	{
-		if (SendRoutingRequestTo1stRow() < 0)
+		if (G_find_1stRow_master() < 0)
 			return;
 	}
 	// 모든 노드들이 1hop 거리 일경우
 
-	if (SendRoutingRequestTo1stRowFor2ndRow() < 0)
+	if (G_find_2ndRow_master() < 0)
 		return;
 
-	unreceivedNum = 0;
-	for (i = 1; i <= NUM_OF_CONTRL; i++)
-	{
-		if (!checkReceive[i])
-			unreceivedNum++;
-		else if (i == NUM_OF_CONTRL && unreceivedNum == 0)
-			return;
-	}
-	receivedMasterNum[0] = 0;
-	//=================================================================================================================================================
-	Serial.println("[MULTI_HOP]");
-	while (1)
-	{
-		for (i = 0; i < receivedMasterNum[rowFlag % 2]; i++)
-		{
-			for (j = 1; j <= NUM_OF_CONTRL; j++)
-			{
-				if (!checkReceive[j])
-				{
-					bufIdx = 0;
-					temp_buf[bufIdx] = highByte(j);
-					bufIdx++;
-					temp_buf[bufIdx] = lowByte(j);
-					bufIdx++;
-					send(_thisAddress, getRouteTo(receivedMaster[rowFlag % 2][i])->next_hop[0], _thisAddress, receivedMaster[rowFlag % 2][i], MULTI_HOP_REQUEST_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
-					startTime = millis();
-					while ((millis() - startTime) < rowFlag * 2 * TIME_TERM * 2)//타이트하게
-					{
-						SetReceive();
-						if (available())
-						{
-							if (recvData(temp_buf))
-							{
-								if (checkReceive[_rxHeaderSource] == true && _rxHeaderSource != _thisAddress)
-								{
-									addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
-								}
-								if (_rxHeaderTo == _thisAddress)
-								{
-									printRecvPacketHeader();
-									if (_rxHeaderType == MULTI_HOP_REQUEST_ACK_TYPE && j == _rxHeaderSource && _rxHeaderDestination == _thisAddress && _rxHeaderFrom == getRouteTo(receivedMaster[rowFlag % 2][i])->next_hop[0])
-									{
-										Serial.println("multihop request ack receive!!");
-										addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, rowFlag);
-										checkReceive[_rxHeaderSource] = true;
-										unreceivedNum--;
-										receivedMaster[(rowFlag + 1) % 2][receivedMasterNum[(rowFlag + 1) % 2]] = _rxHeaderSource;
-										receivedMasterNum[(rowFlag + 1) % 2];
-										printRoutingTable();
-										break;
-									}
-								}
-							}
-						}
-					}
-					if (unreceivedNum == 0)
-						break;
-				}
-			}
-			if (unreceivedNum == 0)
-				break;
-		}
-		if (unreceivedNum == 0)
-			break;
-		receivedMasterNum[rowFlag % 2] = 0;
-		rowFlag++;
-		if (receivedMasterNum[(rowFlag + 1) % 2] == 0)
-			break;
-	}
+	unreceivedNum = G_find_multihop_node();
 	Serial.println("[unreceived]");
-	if (unreceivedNum != 0)//원래 while로 해야됨, 일일이 물어봄(multi hop에서 해결이 됐어야 하는데, 전송이 잘 안돼서 못받은 노드들)
+	if (unreceivedNum != 0)//원래 while로 해야됨, 일일이 물어봄(multi hop에서 해결이 됐어야 하는데, 전송이 잘 안돼서 못받은 애들)
 	{
 		for (i = 1; i <= NUM_OF_CONTRL; i++)
 		{
@@ -573,7 +505,7 @@ void Datagram::FromMasterToGateway() {
 			if (recvData(temp_buf))
 			{
 				addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);
-				findCandidateParents();
+				M_findCandidateParents();
 				if (getRouteTo(_rxHeaderSource)->next_hop[0] != 0)//수정하기
 					addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
 				if (_rxHeaderTo == _thisAddress)
@@ -595,12 +527,12 @@ void Datagram::FromMasterToGateway() {
 					else if (_rxHeaderType == R2_REQUEST_TYPE)
 					{
 						Serial.println("receive R2 request and I succeed R1");
-						find2ndRowMasters();
+						M_find2ndRowMasters();
 					}
 					else if (_rxHeaderType == R2_REQUEST_REAL_TYPE)
 					{
 						Serial.println("receive R2 routing request and I didn't success in R1 request");
-						masterSendRoutingReply();
+						M_masterSendRoutingReply();
 					}/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 					else if (_rxHeaderType == MULTI_HOP_REQUEST_TYPE)
 					{
@@ -609,7 +541,7 @@ void Datagram::FromMasterToGateway() {
 							dest = word(temp_buf[0], temp_buf[1]);
 							if (dest != _thisAddress)
 							{
-								//아직 routing 안된 노드 한테 보내줌
+								//아직 routing 안된 애 한테 보내줌
 								Serial.println("received multihop request and send to unrouting Master");
 								uint16_t dest = word(temp_buf[0], temp_buf[1]);
 								//from, to, src, dst, type, data, flags, seqnum
@@ -617,7 +549,7 @@ void Datagram::FromMasterToGateway() {
 							}
 							else
 							{
-								//routing 안 되어있던 노드가 받음
+								//routing 안 되어있던 애가 받음
 								if (candidateAddress == _rxHeaderFrom)
 								{
 									Serial.println("received multi hop request");
@@ -651,14 +583,14 @@ void Datagram::FromMasterToGateway() {
 							dest = word(temp_buf[0], temp_buf[1]);
 							if (dest != _thisAddress)
 							{
-								//아직 routing 안된 노드 한테 보내줌
+								//아직 routing 안된 애 한테 보내줌
 								Serial.println("receive unreceived_request and send to unrouting Master");
 								//from, to, src, dst, type, data, flags, seqnum
 								send(_thisAddress, dest, _thisAddress, dest, UNRECEIVED_REQUEST, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 							}
 							else
 							{
-								//routing 안되어있던 노드가 받음
+								//routing 안되어있던 애가 받음
 								Serial.println("receive unreceived_request and send ack");
 								_receivedRequestFlag = true;
 								addRouteTo(GATEWAY_ADDR, _rxHeaderFrom, Valid);
@@ -780,14 +712,14 @@ uint16_t Datagram::convertAddress(uint8_t gatewayNumber, uint8_t masterNumber, u
 
 }
 /****************************************************************
-*FUNCTION NAME:  SendRoutingRequestTo1stRow( )
+*FUNCTION NAME:  G_find_1stRow_master( )
 *FUNCTION     : Gateway가 direct하게 연결할수 있는 매스터 노드들에게 라우팅 요청 메시지를 전송하고,
 응답을 기다린다.
 - 응답이 도착하면, 라우팅 테이블에 삽입하며,
 *INPUT        : none
 *OUTPUT       : 1 hop 보다 먼 노드들의 갯수, 모든 노드들이 1hop 경우 -1 return
 ****************************************************************/
-void Datagram::SendRoutingRequestTo1stRow()
+int8_t Datagram::G_find_1stRow_master()
 {
 	uint16_t address_i;
 	for (i = 1; i <= NUM_OF_CONTRL; i++)
@@ -808,8 +740,8 @@ void Datagram::SendRoutingRequestTo1stRow()
 					if (_rxHeaderType == REQUEST_ACK_TYPE && _rxHeaderSource == address_i && _rxHeaderDestination == _thisAddress && _rxHeaderFrom == address_i)//조건에 맞는다면 걔네는 1hop인 master들
 					{
 						Serial.println("receive row1 request_ack");
-						//receivedMasterNum(크기가 2인 배열) : hop count가 n인 노드들의 개수(n이 홀수면 idx가 0, n이 짝수면 idx가 1)
-						//receivedMaster(2차원 배열) : hop count가 n인 노드들의 주소를 넣음(n이 홀수면 receivedCotroller[0] 사용, n이 짝수면 receivedMaster[1] 사용)
+						//receivedMasterNum(크기가 2인 배열) : hop count가 n인 애들의 개수(n이 홀수면 idx가 0, n이 짝수면 idx가 1)
+						//receivedMaster(2차원 배열) : hop count가 n인 애들의 주소를 넣음(n이 홀수면 receivedCotroller[0] 사용, n이 짝수면 receivedMaster[1] 사용)
 						//checkReceive : routing이 된 주소를 true로 표시
 						receivedMaster[0][receivedMasterNum[0]] = _rxHeaderFrom;
 						addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);//dst, next, state, hop count
@@ -837,16 +769,19 @@ void Datagram::SendRoutingRequestTo1stRow()
 
 }
 /****************************************************************
-*FUNCTION NAME:  SendRoutingRequestTo1stRowFor2ndRow( )
+*FUNCTION NAME:  G_find_2ndRow_master( )
 *FUNCTION     :  Gateway가  1 hop 노드들에게, 라우팅이 안된 노드들의 주소를 페이로드에 포함하여 전송함.
 
 *INPUT        : none
 *OUTPUT       :
 ****************************************************************/
-void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
+int8_t Datagram::G_find_2ndRow_master()
 {
 	//================================================================================================================================================
 	//row2 : 1hop인 master들에게 아직 라우팅이 안된 노드들의 주소를 보내서 근처에 노드들이 있는지 물어봄
+	uint16_t address;
+	uint8_t highAddress;
+	uint8_t lowAddress;
 	Serial.println("[row2]");
 	for (i = 0; i < receivedMasterNum[0]; i++)
 	{
@@ -860,7 +795,7 @@ void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
 				Serial.print("unreceive : ");
 				Serial.println(j);
 				address = convertAddress(gatewayNumber, j, 0);
-				//routing이 안된 노드들의 주소를 전송되는 배열에 넣는다.
+				//routing이 안된 애들의 주소를 전송되는 배열에 넣는다.
 
 				highAddress = (uint8_t)(address >> 8);
 				lowAddress = (uint8_t)(0x00FF & address);
@@ -871,12 +806,12 @@ void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
 				bufIdx++;
 			}
 			else if (j == NUM_OF_CONTRL && bufIdx == 0)
-				return;
+				return -1;
 		}
 		Serial.print("send : ");
 		Serial.println(receivedMaster[0][i]);
 		send(_thisAddress, receivedMaster[0][i], _thisAddress, receivedMaster[0][i], R2_REQUEST_TYPE, unreceivedNum, NONE, NONE, temp_buf, sizeof(temp_buf));//from, to, src, dst, type, data, flags, seqnum
-																																							 //1hop인 노드들한테 보냄
+																																							 //1hop인 애들한테 보냄
 		Serial.println(word(temp_buf[0], temp_buf[1]));
 		startTime = millis();
 		timeLimit = unreceivedNum * 2 * TIME_TERM * 2;
@@ -918,16 +853,23 @@ void Datagram::SendRoutingRequestTo1stRowFor2ndRow()
 			}
 		}
 	}
+	for (i = 1; i <= NUM_OF_CONTRL; i++)
+	{
+		if (!checkReceive[i])
+			unreceivedNum++;
+		else if (i == NUM_OF_CONTRL && unreceivedNum == 0)
+			return -1;
+	}
 }
 
 /****************************************************************
-*FUNCTION NAME:  findCandidateParents( )
+*FUNCTION NAME:  M_findCandidateParents( )
 *FUNCTION     :
 
 *INPUT        :
 *OUTPUT       :
 ****************************************************************/
-void Datagram::findCandidateParents()
+void Datagram::M_findCandidateParents()
 {
 	if (_receivedRequestFlag == false && (_rxHeaderType == REQUEST_ACK_TYPE || _rxHeaderType == R2_REQUEST_ACK_TYPE || _rxHeaderType == MULTI_HOP_REQUEST_ACK_TYPE))
 	{
@@ -962,13 +904,13 @@ void Datagram::findCandidateParents()
 
 }
 /****************************************************************
-*FUNCTION NAME:  find2ndRowMasters( )
+*FUNCTION NAME:  M_find2ndRowMasters( )
 *FUNCTION     :
 
 *INPUT        :
 *OUTPUT       :
 ****************************************************************/
-void Datagram::find2ndRowMasters()
+void Datagram::M_find2ndRowMasters()
 {
 	uint16_t childNodeList[32];
 	byte temp[20];
@@ -1021,17 +963,17 @@ void Datagram::find2ndRowMasters()
 			bufIdx++;
 		}
 		//from, to, src, dst, type, data, flags, seqnum
-		send(_thisAddress, GATEWAY_ADDR, childNodeList[0], GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, indirectAdrIdx, NONE, NONE, temp_buf, sizeof(temp_buf));
+		send(_thisAddress, GATEWAY_ADDR, childNodeList[0], GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, idx, NONE, NONE, temp_buf, sizeof(temp_buf));
 	}
 }
 /****************************************************************
-*FUNCTION NAME: masterSendRoutingReply( )
+*FUNCTION NAME:M_masterSendRoutingReply( )
 *FUNCTION     :
 
 *INPUT        :
 *OUTPUT       :
 ****************************************************************/
-void Datagram::masterSendRoutingReply()
+void Datagram::M_masterSendRoutingReply()
 {
 	if (candidateAddress == _rxHeaderFrom || candidateAddress2 == _rxHeaderFrom)
 	{
@@ -1041,5 +983,125 @@ void Datagram::masterSendRoutingReply()
 		send(_thisAddress, _rxHeaderFrom, _thisAddress, GATEWAY_ADDR, R2_REQUEST_ACK_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 		_receivedRequestFlag = true;
 	}
+}
+/****************************************************************
+*FUNCTION NAME: G_get_i_row_node_list(uint8_t row_number, uint16_t *node_list )
+*FUNCTION     : Gatway gets the list of node on the i_th row
+
+*INPUT        : row number
+*OUTPUT       : return value: number of node on the i_th row
+****************************************************************/
+uint8_t Datagram::G_get_i_row_node_list(uint8_t row_number, uint16_t *node_list)
+{
+	uint8_t i, j = 0;
+	for (i = 1; j <= NUM_OF_CONTRL; i++)//routing이 안된 노드들의 주소를 table을 뒤져서 알아냄
+	{
+		if (_routes[i].hop == row_number)
+		{
+			node_list[j] = _routes[i].dest;
+			j++;
+		}
+	}
+	return j;
+}
+
+/****************************************************************
+*FUNCTION NAME: G_find_multihop_node ()
+*FUNCTION     :  Gateway finished the routing discovery upto 2nd row.
+Gateway tries to find the 3rd and more row nodes.
+- routing이 안된 노드의 주소를  payload에 포함하여, 최근에 구한 row의 노드들에게  multihop routing
+요청 메시지를 전송한다.
+*INPUT        :
+*OUTPUT       :
+****************************************************************/
+int8_t Datagram::G_find_multihop_node()
+{
+	byte i, j;
+	byte row_number;
+	byte number_of_node;
+	uint16_t node_list[NUM_OF_CONTRL] = { 0 };
+	uint8_t number_of_unknown_node = 0;
+	uint16_t address;
+	uint8_t highAddress;
+	uint8_t lowAddress;
+
+	for (i = 1; i <= NUM_OF_CONTRL; i++)
+	{
+		if (!checkReceive[i])
+			number_of_unknown_node++;
+		else if (i == NUM_OF_CONTRL && number_of_unknown_node == 0)
+			return -1;
+	}
+
+	number_of_node = G_get_i_row_node_list(2, node_list);
+	row_number = 3;
+	//=================================================================================================================================================
+	Serial.println("[MULTI_HOP]");
+	while (1)
+	{
+		for (i = 0; i < number_of_node; i++)
+		{
+			for (j = 1; j <= NUM_OF_CONTRL; j++)
+			{
+				if (!checkReceive[j])
+				{
+					bufIdx = 0;
+					address = convertAddress(gatewayNumber, j, 0);
+					//routing이 안된 노드 주소를 전송되는 패킷의 payload에 넣는다.
+
+					highAddress = (uint8_t)(address >> 8);
+					lowAddress = (uint8_t)(0x00FF & address);
+
+					temp_buf[bufIdx] = highAddress;
+					bufIdx++;
+					temp_buf[bufIdx] = lowAddress;
+					bufIdx++;
+
+					send(_thisAddress, getRouteTo(node_list[i])->next_hop[0], _thisAddress, node_list[i], MULTI_HOP_REQUEST_TYPE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
+
+					startTime = millis();
+					while ((millis() - startTime) < row_number * 2 * TIME_TERM * 2)//타이트하게
+					{
+						SetReceive();
+						if (available())
+						{
+							if (recvData(temp_buf))
+							{
+								if (checkReceive[_rxHeaderSource] == true && _rxHeaderSource != _thisAddress)
+								{
+									addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid);
+								}
+								if (_rxHeaderTo == _thisAddress)
+								{
+									printRecvPacketHeader();
+									if (_rxHeaderType == MULTI_HOP_REQUEST_ACK_TYPE && j == _rxHeaderSource && _rxHeaderDestination == _thisAddress && _rxHeaderFrom == getRouteTo(node_list[i])->next_hop[0])
+									{
+										Serial.println("multihop request ack receive!!");
+										addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, row_number);
+										checkReceive[_rxHeaderSource] = true;
+										number_of_unknown_node--;
+										printRoutingTable();
+										break;
+									}
+								}
+							}
+						}
+					}  // end of while
+					if (number_of_unknown_node == 0)
+						break;
+				}  // end of if (!checkReceive[j])
+			}  // end of for (j = 1; j <= NUM_OF_CONTRL; j++)
+			if (number_of_unknown_node == 0)
+				break;
+		}
+		if (number_of_unknown_node == 0)
+			break;
+
+		row_number++;
+		number_of_node = G_get_i_row_node_list(row_number, node_list);
+		if (number_of_node == 0)
+			break;
+	}
+	return number_of_unknown_node;
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

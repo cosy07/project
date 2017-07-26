@@ -165,11 +165,21 @@ public:
 
 	void FromGatewayToMaster();
 
+	int8_t G_find_1stRow_master();
+
+	int8_t G_find_2ndRow_master();
+
+	uint8_t G_get_i_row_node_list(uint8_t row_number, uint16_t *node_list);
+
+	int8_t G_find_multihop_node();
+
 	void FromMasterToGateway();
 
-	void SendRoutingRequestTo1stRow();
+	void M_findCandidateParents();
 
-	void SendRoutingRequestTo1stRowFor2ndRow();
+	void M_find2ndRowMasters();
+
+	void M_masterSendRoutingReply();
 
 	uint16_t convertAddress(uint8_t gatewayNumber, uint8_t masterNumber, uint8_t slaveNumber);
 
@@ -256,10 +266,10 @@ protected:
 	byte i;
 	uint16_t j;
 	uint16_t dest;
-	uint8_tgatewayNumber = 0;
+	uint8_t gatewayNumber = 0;
 
 	unsigned long startTime;
-	uint8_t unreceivedNum = 0;
+	int8_t unreceivedNum = 0;
 	uint16_t timeLimit;
 	uint16_t addr;
 	uint8_t rowFlag = 3;
