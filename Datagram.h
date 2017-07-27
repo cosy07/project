@@ -137,7 +137,7 @@ public:
 		uint16_t      dest;      ///< Destination node address
 		uint16_t      next_hop[2];  ///< Send via this next hop address
 		uint8_t      state;     ///< State of this route, one of RouteState
-		uint8_t		 hop;
+		uint8_t		 hop[2];
 	} RoutingTableEntry;
 
 	/// \param[in] thisAddress The address to assign to this node. Defaults to 0
