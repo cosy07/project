@@ -140,6 +140,13 @@ public:
 		uint8_t		 hop[2];
 	} RoutingTableEntry;
 
+	//path from gateway to master
+	struct nodeForPath
+	{
+		uint16_t address;
+		nodeForPath* next_node = NULL;
+	};
+
 	/// \param[in] thisAddress The address to assign to this node. Defaults to 0
 
 	void setMaxHops(uint8_t max_hops);
@@ -181,7 +188,9 @@ public:
 
 	void M_masterSendRoutingReply();
 
-	uint16_t convertAddress(uint8_t gatewayNumber, uint8_t masterNumber, uint8_t slaveNumber);
+	uint16_t convertToAddress(uint8_t gatewayNumber, uint8_t masterNumber, uint8_t slaveNumber);
+
+	uint8_t convertToMasterNumber(uint16_t address);
 
 	byte receiveInterrupt(byte*);
 
@@ -252,6 +261,7 @@ protected:
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
 	uint8_t receivedMasterNum[2] = { 0 };
 	uint16_t receivedMaster[2][NUM_OF_CONTRL];
+	nodeForPath path[NUM_OF_CONTRL];
 
 
 	uint16_t candidateAddress = 0;
