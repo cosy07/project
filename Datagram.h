@@ -20,40 +20,33 @@
 #define ROUTING_TABLE_SIZE 10
 #define ROUTER_MAX_MESSAGE_LEN 48
 
-#define ROUTER_ERROR_NONE              0
-#define ROUTER_ERROR_INVALID_LENGTH    1
-#define ROUTER_ERROR_NO_ROUTE          2
-#define ROUTER_ERROR_TIMEOUT           3
-#define ROUTER_ERROR_NO_REPLY          4
-#define ROUTER_ERROR_UNABLE_TO_DELIVER 5
-
 //=====================================================================================================
 //	2017-04-26	ver.1
 /****************************************************************
 #define
 ****************************************************************/
-#define REQUEST_TYPE					5
-#define REQUEST_ACK_TYPE				6
-#define R2_REQUEST_TYPE					7
-#define R2_REQUEST_REAL_TYPE			8
-#define R2_REQUEST_ACK_TYPE				9
-#define MULTI_HOP_REQUEST_TYPE			10
-#define MULTI_HOP_REQUEST_ACK_TYPE		11
-#define UNRECEIVED_REQUEST				12
-#define UNRECEIVED_REQUEST_ACK			13
-#define CHECK_ROUTING					14
-#define ACK								15
-#define MAX_NUM_TO_MASTER				16
+#define REQUEST_TYPE					0
+#define REQUEST_ACK_TYPE				1
+#define R2_REQUEST_TYPE					2
+#define R2_REQUEST_REAL_TYPE			3
+#define R2_REQUEST_ACK_TYPE				4
+#define REQUEST_PATH_ONE_BY_ONE			5
+#define REQUEST_PATH_ONE_BY_ONE_ACK		6
+#define CHECK_ROUTING					7
 
-#define SCAN_REQUEST_TO_MASTER			17
-#define SCAN_REQUEST_TO_RC_EXTERNAL		18
-#define SCAN_REQUEST_TO_SLAVE			19
-#define SCAN_RESPONSE_TO_RC				20
-#define SCAN_RESPONSE_TO_MASTER			21
-#define SCAN_RESPONSE_TO_GATEWAY		22
+#define ACK								8
 
-#define INSTRUCTION_FROM_GATEWAY		23
-#define INSTRUCTION_FROM_RC				24
+#define MAX_NUM_TO_MASTER				9
+
+#define SCAN_REQUEST_TO_MASTER			10
+#define SCAN_REQUEST_TO_RC_EXTERNAL		11
+#define SCAN_REQUEST_TO_SLAVE			12
+#define SCAN_RESPONSE_TO_RC				13
+#define SCAN_RESPONSE_TO_MASTER			14
+#define SCAN_RESPONSE_TO_GATEWAY		15
+
+#define INSTRUCTION_FROM_GATEWAY		16
+#define INSTRUCTION_FROM_RC				17
 
 #define NONE						0
 #define GATEWAY_ADDR				0x0000
@@ -133,19 +126,12 @@ public:
 
 	/// Defines an entry in the routing table
 	typedef struct
-	{
+	{7uy
 		uint16_t      dest;      ///< Destination node address
-		uint16_t      next_hop[2];  ///< Send via this next hop address
+		uint16_t      next_hop;  ///< Send via this next hop address
 		uint8_t      state;     ///< State of this route, one of RouteState
-		uint8_t		 hop[2];
+		uint8_t		 hop;
 	} RoutingTableEntry;
-
-	//path from gateway to master
-	struct nodeForPath
-	{
-		uint16_t address;
-		nodeForPath* next_node = NULL;
-	};
 
 	/// \param[in] thisAddress The address to assign to this node. Defaults to 0
 
@@ -196,13 +182,19 @@ public:
 
 	byte receive(byte*);
 
-	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size);
+	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size);
 
-	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time);
+	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time = 0);
 
-	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time);
+	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time = 0);
 
 	void printRecvPacketHeader();
+
+	void printPath(uint16_t NodeAddress);
+	
+	bool G_request_path_one_by_one(uint16_t address, byte row_number, uint16_t* node_list, byte number_of_node);
+
+	void G_discoverNewPath(uint16_t address);
 
 protected:
 
@@ -259,15 +251,11 @@ protected:
 	//	2017-04-27 ver.1.1
 	bool _receivedRequestFlag = false;
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
-	uint8_t receivedMasterNum[2] = { 0 };
-	uint16_t receivedMaster[2][NUM_OF_CONTRL];
-	nodeForPath path[NUM_OF_CONTRL];
+	uint16_t parentMaster[NUM_OF_CONTRL + 1][2];
 
 
 	uint16_t candidateAddress = 0;
 	uint8_t candidateRSSI = 0;
-	uint16_t candidateAddress2 = 0;
-	uint8_t candidateRSSI2 = 0;
 
 
 
@@ -281,10 +269,8 @@ protected:
 	uint8_t gatewayNumber = 0;
 
 	unsigned long startTime;
-	int8_t unreceivedNum = 0;
 	uint16_t timeLimit;
 	uint16_t addr;
-	uint8_t rowFlag = 3;
 };
 
 #endif
