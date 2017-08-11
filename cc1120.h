@@ -28,7 +28,7 @@
 #define F0_433  0x62        
 #define CC1120_MAX_MESSAGE_LEN 50
 #define BROADCAST_ADDRESS 0xFFFF
-#define CC1120_HEADER_LEN 12
+#define CC1120_HEADER_LEN 13
 
 #define TYPE_ACK 				0x01
 #define TYPE_COMMAND 			0x02
@@ -308,6 +308,7 @@ class ELECHOUSE_CC1120
 		uint8_t   e_rxHeaderData ;
   		uint8_t   e_rxHeaderFlags ;
 		uint8_t   e_rxHeaderSeqNum ;
+		uint8_t   e_rxHeaderHop ;
 
   		uint16_t  e_txHeaderFrom ;
 		uint16_t  e_txHeaderTo ;  		
@@ -317,6 +318,8 @@ class ELECHOUSE_CC1120
 		uint8_t   e_txHeaderData ;
 		uint8_t   e_txHeaderFlags ;
 		uint8_t   e_txHeaderSeqNum ;
+		uint8_t   e_txHeaderHop;
+
 		uint8_t   SS_PIN;
 		uint8_t   RST_PIN;   // Sean - need a reset PIN
 		uint8_t   GDO0;
@@ -347,6 +350,7 @@ class ELECHOUSE_CC1120
 		void setHeaderData(uint8_t data);
 		void setHeaderFlags(uint8_t seq);
 		void setHeaderSeqNum(uint8_t seq);
+		void setHeaderHop(uint8_t hop);
         void RegConfigSettings(byte f);
 		void setTxPowerTo5mW();
 		byte  setSyncWords(const uint8_t* syncWords, uint8_t len);
@@ -358,6 +362,7 @@ class ELECHOUSE_CC1120
 		uint8_t  headerData( );
 		uint8_t  headerFlags( );
 		uint8_t  headerSeqNum( );
+		uint8_t  headerHop( );
 		void ManualCalibration();
 		void SetChannel(int ch);
 		typedef enum

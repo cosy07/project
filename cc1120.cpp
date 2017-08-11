@@ -126,7 +126,8 @@ ELECHOUSE_CC1120::ELECHOUSE_CC1120( ) :
     e_txHeaderType(0xEE),
     e_txHeaderData(0xFF),
     e_txHeaderFlags(0xFF),
-    e_txHeaderSeqNum(0x00)
+    e_txHeaderSeqNum(0x00),
+	e_txHeaderHop(0x00)
 {   
      
 }
@@ -447,6 +448,7 @@ void ELECHOUSE_CC1120::SendData(byte *txBuffer,byte size)
 	temp[9] = e_txHeaderData;
   	temp[10] = e_txHeaderFlags ;
  	temp[11] = e_txHeaderSeqNum++;
+	temp[12] = e_txHeaderHop;
  
 
     for (i=CC1120_HEADER_LEN ; i<size+CC1120_HEADER_LEN ; i++) {
@@ -617,6 +619,7 @@ byte ELECHOUSE_CC1120::ReceiveData(byte *rxBuffer)
 		e_rxHeaderData			  = 	temp[9];
 		e_rxHeaderFlags			  = 	temp[10];
 		e_rxHeaderSeqNum		  = 	temp[11]; 
+		e_rxHeaderHop			  =		temp[12];
 	
 		memcpy(rxBuffer, temp + CC1120_HEADER_LEN, size-CC1120_HEADER_LEN );
 	
@@ -776,16 +779,18 @@ void ELECHOUSE_CC1120::setHeaderSeqNum(uint8_t seq)
 {
    	 e_txHeaderSeqNum = seq;
 }
-
+void ELECHOUSE_CC1120::setHeaderHop(uint8_t hop)
+{
+	e_txHeaderHop = hop;
+}
  uint16_t  ELECHOUSE_CC1120::headerTo( )
 {
    	return  e_rxHeaderTo;
- 	
 }
  uint16_t  ELECHOUSE_CC1120::headerFrom( )
 {
 	return  e_rxHeaderFrom;
- }
+}
  uint16_t  ELECHOUSE_CC1120::headerSource( )
 { 
 	return  e_rxHeaderSource;
@@ -810,7 +815,10 @@ void ELECHOUSE_CC1120::setHeaderSeqNum(uint8_t seq)
 {
    	return e_rxHeaderSeqNum;  
 }
-
+ uint8_t  ELECHOUSE_CC1120::headerHop()
+{
+	return e_rxHeaderHop;
+}
 
 byte ELECHOUSE_CC1120::setSyncWords(const uint8_t* syncWords, uint8_t len)
 {

@@ -35,22 +35,29 @@
 #define CHECK_ROUTING					7
 
 #define ACK								8
+#define NACK							9
 
-#define MAX_NUM_TO_MASTER				9
+#define MAX_NUM_TO_MASTER				10
 
-#define SCAN_REQUEST_TO_MASTER			10
-#define SCAN_REQUEST_TO_RC_EXTERNAL		11
-#define SCAN_REQUEST_TO_SLAVE			12
-#define SCAN_RESPONSE_TO_RC				13
-#define SCAN_RESPONSE_TO_MASTER			14
-#define SCAN_RESPONSE_TO_GATEWAY		15
+#define SCAN_REQUEST_TO_MASTER			11
+#define SCAN_REQUEST_TO_RC_EXTERNAL		12
+#define SCAN_REQUEST_TO_SLAVE			13
+#define SCAN_RESPONSE_TO_RC				14
+#define SCAN_RESPONSE_TO_MASTER			15
+#define SCAN_RESPONSE_TO_GATEWAY		16
 
-#define INSTRUCTION_FROM_GATEWAY		16
-#define INSTRUCTION_FROM_RC				17
+#define CONTROL_MESSAGE					17		//INSTRUCTION_FROM_GATEWAY
+#define SCAN_MESSAGE					18		//SCAN_FROM_GATEWAY
+#define SCAN_ACK						19
+#define CONTROL_ACK						20		//INSTRUCTION_ACK_FROM_MASTER
+#define INSTRUCTION_FROM_RC				21
+#define ADD_ROUTE						22
 
 #define NONE						0
 #define GATEWAY_ADDR				0x0000
 #define TIME_TERM					2000
+#define TIME_HOP					400
+#define TIME_CONTROL				5000
 #define NUM_OF_CONTRL				3
 class  Datagram
 {
@@ -68,6 +75,7 @@ public:
 	void 	setHeaderData(uint8_t data);
 	void    setHeaderSeqNum(uint8_t seq);
 	void    setHeaderFlags(uint8_t flags);
+	void	setHeaderHop(uint8_t hop);
 
 	uint16_t        headerTo();
 	uint16_t        headerFrom();
@@ -77,6 +85,7 @@ public:
 	uint8_t         headerData();
 	uint8_t   		headerSeqNum();
 	uint8_t   		headerFlags();
+	uint8_t			headerHop();
 
 	bool  	       waitAvailableTimeout(uint16_t timeout);
 	bool           available();
@@ -126,7 +135,7 @@ public:
 
 	/// Defines an entry in the routing table
 	typedef struct
-	{7uy
+	{
 		uint16_t      dest;      ///< Destination node address
 		uint16_t      next_hop;  ///< Send via this next hop address
 		uint8_t      state;     ///< State of this route, one of RouteState
@@ -182,19 +191,25 @@ public:
 
 	byte receive(byte*);
 
-	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size);
+	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size);
 
-	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time = 0);
+	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time = 0);
 
-	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time = 0);
+	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time = 0);
 
 	void printRecvPacketHeader();
 
-	void printPath(uint16_t NodeAddress);
+	void printPath();
 	
 	bool G_request_path_one_by_one(uint16_t address, byte row_number, uint16_t* node_list, byte number_of_node);
 
 	void G_discoverNewPath(uint16_t address);
+
+	void G_handle_CONTROL_message(byte* maxOP, byte* curOP, byte list_of_message_from_PC[][10], byte fromFCU[][10]);
+
+	bool G_send_Control_wait_ACK_from_master(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size);
+
+	bool G_handle_SCAN_message(uint16_t master_address, byte fromPC[], byte fromFCU[][10]);
 
 protected:
 
@@ -231,6 +246,7 @@ protected:
 	uint8_t   			_rxHeaderData;
 	uint8_t   			_rxHeaderFlags;
 	uint8_t   			_rxHeaderSeqNum;
+	uint8_t				_rxHeaderHop;
 
 	/// Count of retransmissions we have had to send
 	uint32_t _retransmissions;
@@ -251,7 +267,7 @@ protected:
 	//	2017-04-27 ver.1.1
 	bool _receivedRequestFlag = false;
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
-	uint16_t parentMaster[NUM_OF_CONTRL + 1][2];
+	uint16_t parentMaster[NUM_OF_CONTRL + 1];
 
 
 	uint16_t candidateAddress = 0;
