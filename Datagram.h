@@ -5,8 +5,6 @@
 
 #include <cc1120.h>
 
-
-
 /// the default retry timeout in milliseconds
 #define DEFAULT_TIMEOUT 100
 
@@ -48,17 +46,26 @@
 
 #define CONTROL_MESSAGE					17		//INSTRUCTION_FROM_GATEWAY
 #define SCAN_MESSAGE					18		//SCAN_FROM_GATEWAY
-#define SCAN_ACK						19
-#define CONTROL_ACK						20		//INSTRUCTION_ACK_FROM_MASTER
-#define INSTRUCTION_FROM_RC				21
-#define ADD_ROUTE						22
+#define SCAN_SLAVE						19
+#define SCAN_ACK						20
+#define CONTROL_ACK						21		//INSTRUCTION_ACK_FROM_MASTER
+#define INSTRUCTION_FROM_RC				22
+#define ADD_ROUTE						23
+#define MAX_NUM_OF_SLAVE				24
+#define SCAN_SLAVE_ACK					25
+#define ERROR_MESSAGE					26
+#define SCAN_UPDATE						27
 
 #define NONE						0
 #define GATEWAY_ADDR				0x0000
 #define TIME_TERM					2000
 #define TIME_HOP					400
 #define TIME_CONTROL				5000
-#define NUM_OF_CONTRL				3
+#define NUM_OF_CONTRL				1
+
+void RS485_Write_Read(uint8_t *write_buf,uint8_t *read_buf);
+
+
 class  Datagram
 {
 public:
@@ -191,11 +198,9 @@ public:
 
 	byte receive(byte*);
 
-	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size);
+	void send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, uint8_t* temp_buf, uint8_t size);
 
-	bool sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time = 0);
-
-	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time = 0);
+	bool sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, uint8_t* temp_buf, uint8_t size, unsigned long time = 2000);
 
 	void printRecvPacketHeader();
 
@@ -207,9 +212,20 @@ public:
 
 	void G_handle_CONTROL_message(byte* maxOP, byte* curOP, byte list_of_message_from_PC[][10], byte fromFCU[][10]);
 
-	bool G_send_Control_wait_ACK_from_master(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size);
+	bool G_send_Control_wait_ACK_from_master(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, uint8_t hop, uint8_t* temp_buf, uint8_t size);
 
 	bool G_handle_SCAN_message(uint16_t master_address, byte fromPC[], byte fromFCU[][10]);
+
+	bool sendToWaitBroadcast(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, uint8_t* temp_buf, uint8_t size, unsigned long time);
+
+	bool M_handle_CONTROL_message( uint8_t *write_buf, Datagram manager2);
+	
+	bool M_handle_SCAN_SLAVE_message( int  slave_id,  uint8_t * read_buf  );
+	
+	bool  M_handle_SCAN_message( uint8_t *write_buf   );
+	
+	bool  M_handle_ERROR_message( uint16_t slave_address  );
+	
 
 protected:
 
@@ -217,20 +233,13 @@ protected:
 
 	RoutedMessage _tmpMessage;
 
-
-
-
-
 	void 	deleteRoute(uint8_t index);
-
 
 	uint8_t 	_lastE2ESequenceNumber;
 
 	uint8_t     _max_hops;
 
 	/// Temporary mesage buffer
-
-
 
 	/// Local routing table
 	RoutingTableEntry    _routes[ROUTING_TABLE_SIZE];
@@ -269,11 +278,8 @@ protected:
 	bool checkReceive[NUM_OF_CONTRL + 1] = { false };
 	uint16_t parentMaster[NUM_OF_CONTRL + 1];
 
-
 	uint16_t candidateAddress = 0;
 	uint8_t candidateRSSI = 0;
-
-
 
 	byte temp_buf[20];
 	uint8_t bufIdx = 0;
@@ -282,7 +288,7 @@ protected:
 	byte i;
 	uint16_t j;
 	uint16_t dest;
-	uint8_t gatewayNumber = 0;
+ 	uint8_t gatewayNumber = 0;
 
 	unsigned long startTime;
 	uint16_t timeLimit;

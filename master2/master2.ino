@@ -1,5 +1,6 @@
 #include <SoftwareSerial.h>
 #include <Datagram.h>
+#include <DatagramForSlave.h>
 #define SSerialRX        5  //Serial Receive pin DI
 #define SSerialTX        6  //Serial Transmit pin RO
 
@@ -8,32 +9,63 @@
 #define RS485Receive     LOW
 
 SoftwareSerial RS485Serial(SSerialRX, SSerialTX); // RX, TX
-ELECHOUSE_CC1101 cc1102;
-ELECHOUSE_CC1101 cc1103;
-Datagram manager(cc1102, 0x0110);//외부통신
-Datagram manager2(cc1103, 0x0110);//내부통신
-byte gatewaySeqNum = -1;
-byte roomconSeqNum = -1;
-byte temp_buf[40];
+ELECHOUSE_CC1120 cc1120a;
+ELECHOUSE_CC1120 cc1120b;
+Datagram manager(cc1120a, 0x00000110);//외부통신
+DatagramForSlave manager2(cc1120b, 0x00000110);//내부통신
+
+uint8_t temp_buf[40];
+
 uint16_t thisAddress;
-byte maxNum;
-byte data[10];
-byte fromGateway[10];
-unsigned long startTime;
-byte retry;
-bool recvFromRC = false;
-int temp;
-byte num;
+uint16_t roomConAddress = thisAddress + 1;
+uint16_t To;
+
+
+unsigned long slave_scan_startTime;
+bool slave_scaning = false;
+int number_of_slave;
+int slave_id;
+
+uint16_t broadcast_address = thisAddress | 0x001F;
+uint16_t gateway_address =  thisAddress & 0xFC00;
+uint16_t rc_address =  thisAddress| 0x0001 ;
+
+void RS485_Write_Read(uint8_t *write_buf,uint8_t *read_buf)
+{
+  uint8_t num, temp;
+  digitalWrite(SSerialTxControl, RS485Transmit);
+  RS485Serial.write(write_buf, sizeof(write_buf));
+  digitalWrite(SSerialTxControl, RS485Receive);
+  while(1)
+    {
+        if(RS485Serial.available())
+        {
+            num = 0;
+            while(1)
+            {
+              temp = RS485Serial.read();
+              if(temp != -1)
+              {
+                read_buf[num] = temp;
+                num++;
+              }
+              if(num == 10)
+               break;
+            }
+            break;
+        }
+    }       
+}
 void setup() 
 {
   Serial.begin(9600);
   pinMode(SSerialTxControl, OUTPUT);  
   digitalWrite(SSerialTxControl, RS485Receive);  // Init Transceiver
   RS485Serial.begin(9600);   // set the data rate 
-  manager.init(55);
+  manager.init(11);
   manager.SetReceive();
-  manager.fromControllerToGateway();
-  manager2.init(55);
+  manager.FromMasterToGateway();
+  manager2.init(22);
   manager2.SetReceive();
 }
 void loop() 
@@ -42,195 +74,83 @@ void loop()
   if(manager.available())
   {
     if(manager.recvData(temp_buf) && manager.headerTo() == thisAddress)
-    {
-      manager.send(thisAddress, manager.headerFrom(), thisAddress, manager.headerFrom(), ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-      if(manager.headerDestination() != manager._thisAddress)
+    {   
+      //from, to, src, dst, type, data, flags, seqnum,hop, payload, size of payload
+      manager.send(thisAddress, manager.headerFrom(), thisAddress, manager.headerFrom(), ACK, 0, 0, 0, 1,temp_buf, sizeof(temp_buf));
+      if(manager.headerDestination() == thisAddress)
       {
-        if(!manager.sendToWait(thisAddress, manager.getRouteTo(manager.headerDestination())->next_hop[0], manager.headerSource(), manager.headerDestination(), manager.headerType(), manager.headerData(), manager.headerFlags(), manager.headerSeqNum(), temp_buf, sizeof(temp_buf), /*time*/) && getRouteTo(manager.headerDestination())->next_hop[1] != 0)
-          manager.sendToWait(thisAddress, manager.getRouteTo(manager.headerDestination())->next_hop[1], manager.headerSource(), manager.headerDestination(), manager.headerType(), manager.headerData(), manager.headerFlags(), manager.headerSeqNum(), temp_buf, sizeof(temp_buf), /*time*/)//실목적지에다가 전송해줌
+        if (manager.headerType()  == CONTROL_MESSAGE )
+          {         
+            To = manager.headerFrom();
+            uint16_t Relay_slave = thisAddress | (uint8_t)(number_of_slave/2+1);
+                        
+            RS485_Write_Read(temp_buf,temp_buf);
+          
+              // the master  brodcasts the control message to its slave node.
+            if ( manager2.sendToWaitBroadcast(thisAddress, Relay_slave, thisAddress, broadcast_address, CONTROL_MESSAGE , 0, 0, 0, temp_buf , sizeof(temp_buf),TIME_HOP))
+            {               
+                manager.sendToWait(thisAddress, To , thisAddress, gateway_address, CONTROL_ACK, 0, 0, 0,1, temp_buf, sizeof(temp_buf),TIME_HOP);     
+            } 
+          }  // end of CONTROL_MESSAGE 
+        if (manager.headerType()  == SCAN_MESSAGE )
+          {
+             To = manager.getRouteTo(gateway_address)->next_hop;
+              RS485_Write_Read( temp_buf, temp_buf);
+              manager.sendToWait(thisAddress, To , thisAddress, gateway_address, SCAN_ACK, 0, 0, 0, 1,temp_buf, sizeof(temp_buf),TIME_HOP);
+          }
+       if (manager.headerType()  == SCAN_SLAVE  )
+         {
+          slave_scaning = true ;
+          slave_scan_startTime =  millis(); 
+          slave_id=2;  //  the first slave number is 2.the romm con id is 1.
+          manager2.M_handle_SCAN_SLAVE_message(slave_id,temp_buf);   
+         }
       }
-      else
+      else  // the received packet is not for me. the manager relays the packet to the next node.
       {
-        if(manager.headerType() == INSTRUCTION_FROM_GATEWAY && manager.headerFrom() == GATEWAY_ADDR)//gateway로부터 instruction
-        {
-          digitalWrite(SSerialTxControl, RS485Transmit);
-          RS485Serial.write(data, sizeof(data));
-          digitalWrite(SSerialTxControl, RS485Receive);
-          while(1)
-          {
-            if(RS485Serial.available())
-            {
-              num = 0;
-              while(1)
-              {
-                temp = RS485Serial.read();
-                if(temp != -1)
-                {
-                  data[num] = temp;
-                  num++;
-                }
-                if(num == 10)
-                 break;
-              }
-              break;
-            }
-          }
-          for(int i = 0;i < maxNum;i++)
-          {
-            manager2.sendToWait(thisAddress, /*slave's address*/, thisAddress, /*slave's address*/, INSTRUCTION_FROM_GATEWAY, 0, 0, 0, tempb_buf, sizeof(temp_buf, /*time*/));
-          }
-        }
-        else if(manager.headerType() == SCAN_REQUEST_TO_MASTER && manager.headerFrom() == GATEWAY_ADDR)//gateway로부터 scan요청
-        {
-          for(int i = 0;i < 10;i++)
-          {
-            fromGateway[i] = temp_buf[i];
-          }
-          recvFromRC = false;
-          for(int i = 0;i < retry;i++)
-          {
-            manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, SCAN_REQUEST_TO_RC_EXTERNAL, 0, 0, 0, temp_buf, sizeof(temp_buf));
-            startTime = millis();
-            while(millis() - starTime < TIME_TERM)//master가 내부주소가 0이니까 gateway는 얘한테 제일먼저 요청을 보낸다.
-            {
-              manager2.SetReceive();
-              if(manager2.headerType() == SCAN_REQUEST_TO_SLAVE && manager2.headerFrom() == /*roomcon's address*/ && manager2.headerTo() == thisAddress)//룸콘으로부터 scan요청
-              {
-                recvFromRC = true;
-                for(int i = 0;i < 10;i++)
-                {
-                  data[i] = temp_buf[i];
-                }
-                digitalWrite(SSerialTxControl, RS485Transmit);
-                RS485Serial.write(data, sizeof(data));
-                digitalWrite(SSerialTxControl, RS485Receive);
-                while(1)
-                {
-                  if(RS485Serial.available())
-                  {
-                    num = 0;
-                    while(1)
-                    {
-                      temp = RS485Serial.read();
-                      if(temp != -1)
-                      {
-                        data[num] = temp;
-                        num++;
-                      }
-                      if(num == 10)
-                       break;
-                    }
-                    manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, SCAN_RESPONSE_TO_RC, 0, 0, 0, data, sizeof(data));
-                    break;
-                  }
-                }
-              }
-            }
-            if(recvFromRC)
-              break;
-          }
-        }
+          To = manager.getRouteTo(manager.headerDestination())->next_hop;
+          manager.sendToWaitAck(thisAddress, To, manager.headerSource(), manager.headerDestination(), manager.headerType(), manager.headerData(), manager.headerFlags(), manager.headerSeqNum(),manager.headerHop(), temp_buf, sizeof(temp_buf),TIME_HOP);
       }
     }
   }
-  manager2.SetReceive();
+  
+   if ( ( slave_scaning == true)  && (millis() - slave_scan_startTime > 1000 )) // Every one second, the master continues to send the SCAN message to the slave nodes.  
+    {
+         manager2.M_handle_SCAN_SLAVE_message(slave_id,temp_buf);   
+         slave_id ++;
+        if (slave_id >number_of_slave + 1 )  // if the master finishes the SCAN message, then send SCAN_SLAVE_ACK to the gateway.
+        { 
+          To =   manager.getRouteTo(gateway_address)->next_hop  ;
+          slave_id = 2;
+          slave_scaning = false ;
+          manager.sendToWait(thisAddress, To , thisAddress, gateway_address , SCAN_SLAVE_ACK , 0, 0, 0, 1,temp_buf, sizeof(temp_buf),TIME_HOP);       
+        }
+   }
+   
+    manager2.SetReceive();
   if(manager2.available())
   {
-    if(manager2.recvData(temp_buf) && manager2.headerTo() == thisAddress)
+    if(manager2.recvData(temp_buf) )
     {
-      if(manager2.headerType() == MAX_NUM_TO_MASTER && manager2.headerFrom() == /*roomcon's address*/)//roomcon으로 부터 slave 개수를 받음
+      if(manager2.headerType() == MAX_NUM_OF_SLAVE && manager2.headerFrom() == rc_address && manager2.headerTo() == thisAddress) //roomcon으로 부터 slave 개수를 받음
       {
-        manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-        maxNum = temp_buf[0];
+        manager2.send(thisAddress, rc_address, thisAddress, rc_address, ACK, 0, 0, 0, 1,temp_buf, sizeof(temp_buf));
+        number_of_slave = temp_buf[0];
       }
-      else if(manager2.headerType() == INSTRUCTION_FROM_RC && manager2.headerFrom() == /*roomcon's address*/)//룸콘으로부터 instruction
-      {
-        //manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-        for(int i = 0;i < 10;i++)
-        {
-          data[i] = temp_buf[i];
-        }
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(data, sizeof(data));
-        digitalWrite(SSerialTxControl, RS485Receive);
-        while(1)
-        {
-          if(RS485Serial.available())
-          {
-            num = 0;
-            while(1)
-            {
-              temp = RS485Serial.read();
-              if(temp != -1)
-              {
-                data[num] = temp;
-                num++;
-              }
-              if(num == 10)
-               break;
-            }
-            break;
-          }
-        }
-      }
-      else if(manager2.headerType() == SCAN_REQUEST_TO_SLAVE && manager2.headerFrom() == /*roomcon's address*/ && manager2.headerTo() == thisAddress)//룸콘으로부터 scan요청
-      {
-        for(int i = 0;i < 10;i++)
-        {
-          data[i] = temp_buf[i];
-        }
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(data, sizeof(data));
-        digitalWrite(SSerialTxControl, RS485Receive);
-        while(1)
-        {
-          if(RS485Serial.available())
-          {
-            num = 0;
-            while(1)
-            {
-              temp = RS485Serial.read();
-              if(temp != -1)
-              {
-                data[num] = temp;
-                num++;
-              }
-              if(num == 10)
-               break;
-            }
-            manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, SCAN_RESPONSE_TO_RC, 0, 0, 0, data, sizeof(data));
-            break;
-          }
-        }
-      }
-      else if(manager2.headerType() == SCAN_RESPONSE_TO_MASTER && manager2.headerFrom() == /*roomcon's address*/)//룸콘으로부터 scan끝
-      {
-        manager2.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(fromGateway, sizeof(fromGateway));
-        digitalWrite(SSerialTxControl, RS485Receive);
-        while(1)
-        {
-          if(RS485Serial.available())
-          {
-            num = 0;
-            while(1)
-            {
-              temp = RS485Serial.read();
-              if(temp != -1)
-              {
-                data[num] = temp;
-                num++;
-              }
-              if(num == 10)
-               break;
-            }
-            break;
-          }
-        }
-        if(!manager.sendToWait(thisAddress, manager.getRouteTo(GATEWAY_ADDR)->next_hop[0], thisAddress, GATEWAY_ADDR, SCAN_RESPONSE_TO_GATEWAY, 0, 0, 0, data, sizeof(data)) && getRouteTo(/*roomcon's address*/)->next_hop[1] != 0)
-          manager.sendToWait(thisAddress, manager.getRouteTo(GATEWAY_ADDR)->next_hop[1], thisAddress, GATEWAY_ADDR, SCAN_RESPONSE_TO_GATEWAY, 0, 0, 0, data, sizeof(data))
-      }
-    }
-  }
+     if (manager2.headerType()  == CONTROL_MESSAGE && manager2.headerDestination() == broadcast_address)   //roomcon으로 부터 제어 메시지를 받음
+        {         
+            
+            uint16_t Relay_slave = thisAddress | (uint8_t)(number_of_slave/2+1);
+                        
+            RS485_Write_Read(temp_buf,temp_buf);
+          
+              // the master  brodcasts the control message to its slave node.
+            manager2.send(thisAddress, Relay_slave, thisAddress, broadcast_address, CONTROL_MESSAGE , 0, 0, 0, 1,temp_buf , sizeof(temp_buf));
+            
+       }  // end of CONTROL_MESSAGE 
+         
+     if (manager2.headerType()  == ERROR_MESSAGE )   //slave로 부터 에러 메시지를 받음
+         manager2.M_handle_ERROR_message(manager2.headerFrom() );
+    }  
+  }   
 }

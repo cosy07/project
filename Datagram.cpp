@@ -251,21 +251,6 @@ false if the timer expires
 ****************************************************************/
 
 
-void  Datagram::MainSendControlToSlave()
-{
-	setHeaderType(TYPE_COMMAND); // SHOULD FIX
-								 //   sendto (); 
-
-}
-
-void  Datagram::RCSendControlToMain()
-{
-
-	setHeaderType(TYPE_COMMAND); // SHOULD FIX
-								 // sendto( ); 
-
-}
-
 void  Datagram::acknowledge()
 {
 	setHeaderSeqNum(_rxHeaderSeqNum);
@@ -423,12 +408,24 @@ void Datagram::FromGatewayToMaster() {
 	//row1 : 모든 master들에게 한번씩 보내봄(1hop인 노드 이 때 체크)
 
 	if (G_find_1stRow_master() < 0)// 모든 노드들이 1hop 거리 일경우
-			return;
-
-	if (G_find_2ndRow_master() < 0)
+	{
+		for (int i = 1; i <= NUM_OF_CONTRL; i++)
+		{
+			address_i = convertToAddress(gatewayNumber, i, 0);
+			send(_thisAddress, getRouteTo(address_i)->next_hop, _thisAddress, address_i, CHECK_ROUTING, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
+		}
 		return;
+	}
+	if (G_find_2ndRow_master() < 0)
+	{
+		for (int i = 1; i <= NUM_OF_CONTRL; i++)
+		{
+			address_i = convertToAddress(gatewayNumber, i, 0);
+			send(_thisAddress, getRouteTo(address_i)->next_hop, _thisAddress, address_i, CHECK_ROUTING, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
+		}
+		return;
+	}
 
-	printRoutingTable();
 	while(G_find_multihop_node());
 
 	for (int i = 1; i <= NUM_OF_CONTRL; i++)
@@ -469,7 +466,6 @@ void Datagram::FromMasterToGateway() {
 					}
 					else if (_rxHeaderType == R2_REQUEST_TYPE)
 					{
-						Serial.println("receive R2 request and I succeed R1");
 						//from, to, src, dst, type, data, flags, seqnum, hop
 						send(_thisAddress, GATEWAY_ADDR, _thisAddress, GATEWAY_ADDR, ACK, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 						M_find2ndRowMasters();
@@ -490,6 +486,7 @@ void Datagram::FromMasterToGateway() {
 								Serial.println("received multihop request and send to unrouting Master");
 								uint16_t dest = word(temp_buf[0], temp_buf[1]);
 								//from, to, src, dst, type, data, flags, seqnum, hop
+								send(_thisAddress, _rxHeaderFrom, _thisAddress, _rxHeaderFrom, ACK, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 								sendToWaitAck(_thisAddress, dest, _rxHeaderSource, dest, _rxHeaderType, NONE, _rxHeaderFlags + 1, NONE, NONE, temp_buf, sizeof(temp_buf), TIME_TERM);
 							}
 							else
@@ -501,6 +498,7 @@ void Datagram::FromMasterToGateway() {
 						}
 						else//중간 hop
 						{
+							send(_thisAddress, _rxHeaderFrom, _thisAddress, _rxHeaderFrom, ACK, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf));
 							Serial.println("received multihop request and send to routing Master. I'm middle Master");
 							//from, to, src, dst, type, data, flags, seqnum, hop
 							sendToWaitAck(_thisAddress, getRouteTo(_rxHeaderDestination)->next_hop, _rxHeaderSource, _rxHeaderDestination, _rxHeaderType, NONE, _rxHeaderFlags + 1, NONE, NONE, temp_buf, sizeof(temp_buf), TIME_TERM);
@@ -534,7 +532,7 @@ void Datagram::FromMasterToGateway() {
 		}
 	}
 }
-void Datagram::send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size)
+void Datagram::send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, uint8_t* temp_buf, uint8_t size)
 {
 	setHeaderFrom(from);
 	setHeaderTo(to);
@@ -547,40 +545,7 @@ void Datagram::send(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint
 	setHeaderHop(hop);
 	_driver.SendData(temp_buf, size);
 }
-bool Datagram::sendToWait(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time)
-{
-	unsigned long startTime = 0;
-	int retry = 3;
-
-	setHeaderFrom(from);
-	setHeaderTo(to);
-	setHeaderSource(src);
-	setHeaderDestination(dst);
-	setHeaderType(type);
-	setHeaderData(data);
-	setHeaderSeqNum(seqNum);
-	setHeaderHop(hop);
-	_driver.SendData(temp_buf, size);
-	for (int i = 0; i < retry; i++)
-	{
-		startTime = millis();
-		while (millis() - startTime < TIME_TERM)
-		{
-			SetReceive();
-			if (available())
-			{
-				if (recvData(temp_buf) && _rxHeaderTo == _thisAddress && _rxHeaderType == ACK && _rxHeaderFrom == to)
-				{
-					return true;
-				}
-			}
-		}
-		delay(time);
-	}
-	return false;
-}
-
-bool Datagram::sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, byte* temp_buf, byte size, unsigned long time)
+bool Datagram::sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t data, uint8_t flags, uint8_t seqNum, uint8_t hop, uint8_t* temp_buf, uint8_t size, unsigned long time)
 {
 	unsigned long startTime = 0;
 	int retry = 3;
@@ -597,21 +562,26 @@ bool Datagram::sendToWaitAck(uint16_t from, uint16_t to, uint16_t src, uint16_t 
 	{
 		_driver.SendData(temp_buf, size);
 		startTime = millis();
-		while (millis() - startTime < time)
+		while (millis() - startTime < TIME_TERM)
 		{
 			SetReceive();
 			if (available())
 			{
-				if (recvData(temp_buf) && _rxHeaderTo == _thisAddress &&  _rxHeaderFrom == to)
+				if (recvData(temp_buf) &&  _rxHeaderFrom == to)
 				{
-					if (_rxHeaderType == ACK || _rxHeaderType == REQUEST_ACK_TYPE || _rxHeaderType == R2_REQUEST_ACK_TYPE || _rxHeaderType == REQUEST_PATH_ONE_BY_ONE_ACK)
+					if (_rxHeaderTo == _thisAddress && (_rxHeaderType == ACK || _rxHeaderType == REQUEST_ACK_TYPE || _rxHeaderType == R2_REQUEST_ACK_TYPE || _rxHeaderType == REQUEST_PATH_ONE_BY_ONE_ACK))
 					{
 						addRouteTo(_rxHeaderFrom, _rxHeaderFrom, Valid, 1);
 						return true;
 					}
+					if (type == R2_REQUEST_TYPE && _rxHeaderType == R2_REQUEST_REAL_TYPE)//gateway에서 round2요청을 1hop master에게 하고 master가 gateway에게 ack을 보냈는데, 못받을 경우 대비
+						return true;
+					if (type == REQUEST_PATH_ONE_BY_ONE && _rxHeaderType == REQUEST_PATH_ONE_BY_ONE)
+						return true;
 				}
 			}
 		}
+		delay(time);
 	}
 	return false;
 }
@@ -747,7 +717,6 @@ int8_t Datagram::G_find_1stRow_master()
 			return -1;
 	}
 	return number_of_unknown_node;
-
 }
 /****************************************************************
 *FUNCTION NAME:  G_find_2ndRow_master( )
@@ -764,16 +733,17 @@ int8_t Datagram::G_find_2ndRow_master()
 	uint8_t highAddress;
 	uint8_t lowAddress;
 	Serial.println("[row2]");
-	byte row_number = 1;
+	uint8_t row_number = 1;
 	uint16_t node_list[NUM_OF_CONTRL] = { 0 };
-	byte number_of_node;
-	byte i, j;
+	uint8_t number_of_node;
+	uint8_t i, j;
 	uint8_t number_of_unknown_node = 0;
 	bool receiving = false;
 	uint8_t masterNum;
-
+	Serial.println("hi");
 	number_of_node = G_get_i_row_node_list(row_number, node_list);
-
+	Serial.print("1hop's num : ");
+	Serial.println(number_of_node);
 	for (i = 0; i < number_of_node; i++)
 	{
 		number_of_unknown_node = 0;
@@ -809,7 +779,7 @@ int8_t Datagram::G_find_2ndRow_master()
 		}
 		Serial.println(word(temp_buf[0], temp_buf[1]));
 		startTime = millis();
-		timeLimit = number_of_unknown_node * 2 * TIME_TERM * 2;
+		timeLimit = number_of_unknown_node * 2 * TIME_TERM * 2 * 2;
 		while ((millis() - startTime) < timeLimit)
 		{
 			SetReceive();
@@ -869,7 +839,7 @@ void Datagram::M_findCandidateParents()
 			Serial.println("receive propagation");
 			receivedType = _rxHeaderType;
 			candidateAddress = _rxHeaderFrom;
-			candidateRSSI = _rxHeaderSeqNum;
+			candidateRSSI = _driver.rssi;
 			Serial.print("My choice : ");
 			Serial.println(candidateAddress);
 		}
@@ -898,7 +868,7 @@ void Datagram::M_find2ndRowMasters()
 {
 	uint16_t childNodeList[32];
 	uint16_t to_address_temp;
-	byte temp[20];
+	uint8_t temp[20];
 	bool receivingR2Ack = false;
 	Serial.println("receive R2 request and I succeed R1");
 	uint8_t count = _rxHeaderData;  // Guin: number of unknown node
@@ -953,7 +923,7 @@ void Datagram::M_find2ndRowMasters()
 ****************************************************************/
 void Datagram::M_masterSendRoutingReply()
 {
-	if (candidateAddress == _rxHeaderFrom)
+	if (candidateAddress == _rxHeaderFrom || candidateAddress == 0)
 	{
 		addRouteTo(_rxHeaderSource, _rxHeaderFrom, Valid, _rxHeaderFlags + 1);
 		printRoutingTable();
@@ -976,8 +946,8 @@ void Datagram::M_masterSendRoutingReply()
 ****************************************************************/
 uint8_t Datagram::G_get_i_row_node_list(uint8_t row_number, uint16_t *node_list)
 {
-	uint8_t i, j = 0;
-	for (i = 1; j <= NUM_OF_CONTRL; i++)
+	uint8_t j = 0;
+	for (int i = 0; i < ROUTING_TABLE_SIZE; i++)
 	{
 		if (_routes[i].hop == row_number)
 		{
@@ -1000,9 +970,9 @@ Gateway tries to find the 3rd and more row nodes.
 ****************************************************************/
 int8_t Datagram::G_find_multihop_node()
 {
-	byte i, j, k;
-	byte row_number;
-	byte number_of_node;
+	uint8_t i, j, k;
+	uint8_t row_number;
+	uint8_t number_of_node;
 	uint16_t node_list[NUM_OF_CONTRL] = { 0 };
 	uint8_t number_of_unknown_node = 0;
 	uint16_t address;
@@ -1050,7 +1020,7 @@ int8_t Datagram::G_find_multihop_node()
 *INPUT        :  목적지 주소
 *OUTPUT       :  성공 여부
 ****************************************************************/
-bool Datagram::G_request_path_one_by_one(uint16_t address, byte row_number, uint16_t* node_list, byte number_of_node)
+bool Datagram::G_request_path_one_by_one(uint16_t address, uint8_t row_number, uint16_t* node_list, byte number_of_node)
 {
 	bool result = false;
 	uint16_t next_hop;
@@ -1069,7 +1039,7 @@ bool Datagram::G_request_path_one_by_one(uint16_t address, byte row_number, uint
 		next_hop = getRouteTo(node_list[i])->next_hop;
 		//from, to, src, dst, type, data, flags, seqnum, hop
 
-		if (!sendToWait(_thisAddress, next_hop, _thisAddress, node_list[i], REQUEST_PATH_ONE_BY_ONE, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf)))
+		if (!sendToWaitAck(_thisAddress, next_hop, _thisAddress, node_list[i], REQUEST_PATH_ONE_BY_ONE, NONE, NONE, NONE, NONE, temp_buf, sizeof(temp_buf), TIME_TERM * 3))
 			continue;
 		startTime = millis();
 		while (millis() - startTime < row_number * 2 * TIME_TERM * 2)
@@ -1100,8 +1070,8 @@ bool Datagram::G_request_path_one_by_one(uint16_t address, byte row_number, uint
 ****************************************************************/
 void Datagram::G_discoverNewPath(uint16_t address)
 {
-	byte row_number;
-	byte number_of_node;
+	uint8_t row_number;
+	uint8_t number_of_node;
 	uint16_t node_list[NUM_OF_CONTRL] = { 0 };
 	uint8_t masterNum;
 
@@ -1118,6 +1088,7 @@ void Datagram::G_discoverNewPath(uint16_t address)
 		}
 	}
 }
+////////////////////////////////////////////////////////////////////////////여기까지 routing///////////////////////////////////////////////////////////////////////////////////////////////////////
 /****************************************************************
 *FUNCTION NAME: G_handel_CONTROL_message ()
 *FUNCTION     :  Gateway handles of a transmittion of CONTROL message.
@@ -1163,7 +1134,7 @@ void Datagram::G_handle_CONTROL_message(byte* maxOP, byte* curOP, byte list_of_m
 				fromFCU[master_id][i] = 0;
 			}
 
-			fromFCU[master_id][0] = 0xEE;
+			fromFCU[master_id][0] = 0xEE;     
 			fromFCU[master_id][2] = master_id;
 			for (int i = 0; i < 9; i++)
 			{
@@ -1349,4 +1320,112 @@ bool Datagram::G_handle_SCAN_message(uint16_t master_address, byte fromPC[10], b
 
 	return false;
 }
+/****************************************************************
+*FUNCTION NAME:  M_handle_ERROR_message
+*FUNCTION     :   The master receives the  ERROR_message from the slave
+				  The master send ERROR_message t to the room con.				 
+*INPUT        :  
+*OUTPUT       :  
+
+****************************************************************/	
+bool Datagram::M_handle_ERROR_message( uint16_t slave_address  )
+{
+	uint8_t send_buf[10] ={0};
+	uint16_t roomConAddress = _thisAddress + 1;
+	send_buf[0] = 0xEE;
+	send_buf[2] = slave_address;
+	
+	for (int i = 0; i < 9; i++)
+	{
+		send_buf[9] ^= send_buf[i];
+	}
+	
+	sendToWaitAck(_thisAddress, roomConAddress , _thisAddress, roomConAddress, ERROR_MESSAGE, 0, 0, 0,1 ,send_buf, sizeof(send_buf),TIME_HOP);
+	
+}
+
+/****************************************************************
+*FUNCTION NAME:  M_handle_SCAN_message
+*FUNCTION     :   The master writes the SACN message to the master FCU.
+				  The master send SCAN_ACK with scan result to the gateway.				 
+*INPUT        :  
+*OUTPUT       :  
+
+****************************************************************/	
+bool Datagram::M_handle_SCAN_message( byte *write_buf   )
+{
+	uint8_t read_buf[10] ={0};
+	uint16_t gateway_address = _thisAddress & 0xFC00;  // 1111 1100 0000 0000
+	uint16_t To = getRouteTo(gateway_address)->next_hop;
+	
+	RS485_Write_Read( write_buf, read_buf);
+	
+	sendToWaitAck(_thisAddress, To , _thisAddress, gateway_address, SCAN_ACK, 0, 0, 0, 1,read_buf, sizeof(read_buf),TIME_HOP);
+	
+}
+
+/****************************************************************
+*FUNCTION NAME:  M_handle_SCAN_SLAVE_message
+*FUNCTION     :   The master receives the SCAN_SLAVE message from the gateway.
+				  The master sends the SCAN message to the first slave node.
+				  Every one second, the master continues to send the SCAN message to the slave nodes.		  
+				 
+*INPUT        : 
+*OUTPUT       :  
+
+****************************************************************/	
+bool Datagram::M_handle_SCAN_SLAVE_message( int  slave_id, uint8_t * read_buf  )
+{
+ 
+ 	uint16_t gateway_address = _thisAddress & 0xFC00;
+	uint16_t To =   _thisAddress + slave_id  ;
+	uint16_t rc_address =  _thisAddress| 0x0001 ;
+		
+	if (sendToWaitAck(_thisAddress, To , _thisAddress, To , SCAN_MESSAGE , 0, 0, 0,1, read_buf, sizeof(read_buf),TIME_HOP))
+	{ 
+		return true; 
+	
+	}
+	else		// if there is no response, then consider as the error.
+	{
+	    read_buf[0] = 0xEE;  
+        read_buf[2] = slave_id;
+        sendToWaitAck(_thisAddress, rc_address , _thisAddress, rc_address , SCAN_SLAVE_ACK , 0, 0, 0, 1,read_buf, sizeof(read_buf),TIME_HOP);
+	}
+}
+
+
+bool Datagram::sendToWaitBroadcast(uint16_t from, uint16_t to, uint16_t src, uint16_t dst, uint8_t type, uint8_t headerData, uint8_t flags, uint8_t seqNum, byte* temp_buf, byte size, unsigned long time)
+{
+	unsigned long startTime = 0;
+	uint16_t broadcast_address = to | 0x001F;
+	int retry = 3;
+	setHeaderFrom(from);
+	setHeaderTo(to);
+	setHeaderSource(src);
+	setHeaderDestination(broadcast_address);
+	setHeaderType(type);
+	setHeaderData(headerData);
+	setHeaderSeqNum(seqNum);
+
+	for (int i = 0; i < retry; i++)
+	{
+		_driver.SendData(temp_buf, size);
+		startTime = millis();
+		while (millis() - startTime < TIME_HOP)
+		{
+			SetReceive();
+			if (available())
+			{
+				if (recvData(temp_buf) && _rxHeaderTo == broadcast_address  && _rxHeaderType == CONTROL_ACK)
+				{				
+						return true;					
+				}
+			}
+		}
+		delay(time); // the first prioty is the control message from the room con, the second is the control from the master to slave.
+	}
+	return false;
+}	
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -1,4 +1,4 @@
-#include <Datagram.h>
+#include <DatagramForSlave.h>
 #include <SoftwareSerial.h>
 #define SSerialRX        5  //Serial Receive pin DI
 #define SSerialTX        6  //Serial Transmit pin RO
@@ -8,18 +8,50 @@
 #define RS485Receive     LOW
 
 SoftwareSerial RS485Serial(SSerialRX, SSerialTX); // RX, TX
-unsigned long startTime, endTime;
-ELECHOUSE_CC1101 cc1102;
-Datagram manager(cc1102,0x0101);  // driver, address
-byte temp_buf[40];
-byte data[10];
+unsigned long startTime;
+ELECHOUSE_CC1120 cc1120;
+DatagramForSlave manager(cc1120,0x0101);  // driver, address
+uint8_t temp_buf[10];
+
+uint8_t slave_status[10];
 uint16_t thisAddress;
-int temp;
-byte num;
+bool state_change = false;
+
+uint16_t   master_address = thisAddress & 0xFFE0;
+uint16_t broadcast_address = master_address | 0x001F;
+uint16_t rc_address =  master_address| 0x0001 ;
+
+void RS485_Write_Read(uint8_t *write_buf,uint8_t *read_buf)
+{
+  uint8_t num, temp;
+  digitalWrite(SSerialTxControl, RS485Transmit);
+  RS485Serial.write(write_buf, sizeof(write_buf));
+  digitalWrite(SSerialTxControl, RS485Receive);
+  while(1)
+    {
+        if(RS485Serial.available())
+        {
+            num = 0;
+            while(1)
+            {
+              temp = RS485Serial.read();
+              if(temp != -1)
+              {
+                read_buf[num] = temp;
+                num++;
+              }
+              if(num == 10)
+               break;
+            }
+            break;
+        }
+    }       
+}
 void setup()
 {
   Serial.begin(9600);
-  manager.init(55);
+  manager.init(22);
+  startTime =  millis(); 
   manager.SetReceive();
   pinMode(SSerialTxControl, OUTPUT);  
   digitalWrite(SSerialTxControl, RS485Receive);  // Init Transceiver
@@ -27,62 +59,52 @@ void setup()
 }
 void loop()
 {
+
+  if ( millis() - startTime > 1000 ) // every one second, the slave node monitors the slave FCU through RS485
+   {     
+          state_change = false;
+          startTime =  millis(); 
+          
+          uint8_t data[10] = {0};   // set the status request format
+          data[0] = 0xAD;
+          data[2] = (uint8_t)(thisAddress & 0x001F); // set the id from the address;
+          data[9] = 0x00;
+          for(int i = 0;i < 9;i++)
+          {
+            data[9] ^= data[i];
+          }
+
+         RS485_Write_Read( data, temp_buf);  // send the status request, and get the new state
+         
+         for(int i = 0;i < 10;i++)
+          {
+            if (slave_status[i] != temp_buf[i])
+                state_change = true;
+            slave_status[i] = temp_buf[i];
+          }
+          if ( state_change == true)  // if there is a change on the status, then report it to the room con             
+                manager.sendToWait(thisAddress, rc_address , thisAddress, rc_address, SCAN_UPDATE, 0, 0, 0, 1,slave_status, sizeof(slave_status),TIME_HOP);   
+   }
+   
   manager.SetReceive();
   if(manager.available())
   {
-    if(manager.receive(temp_buf) && manager.headerTo() == thisAddress)
+    if(manager.recvData(temp_buf))  // 
     {
-      if(manager.headerType() == INSTRUCTION_FROM_GATEWAY && manager.headerFrom() == /*master's address*/)//gateway로부터의 명령
+      if( manager.headerTo() == thisAddress && manager.headerType() == SCAN_SLAVE && manager.headerFrom() == master_address)    // master node로 부터 SCAN 메시지 수신
       {
-        //manager.send(thisAddress, /*master's address*/, thisAddress, /*master's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));//ACK 안보내도 됨
-        for(int i = 0;i < 10;i++)
-        {
-          data[i] = temp_buf[i];
-        }
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(data, sizeof(data));
-        digitalWrite(SSerialTxControl, RS485Receive);
+        RS485_Write_Read( temp_buf, temp_buf);
+        manager.send(thisAddress,master_address, thisAddress, master_address, SCAN_SLAVE_ACK, 0, 0, 0, 1, temp_buf, sizeof(temp_buf));  //ACK 안보내도 됨
       }
-      if(manager.headerType() == INSTRUCTION_FROM_RC && manager.headerFrom() == /*roomcon's address*/)//룸콘으로부터의 명령
-      {
-        manager.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-        for(int i = 0;i < 10;i++)
-        {
-          data[i] = temp_buf[i];
-        }
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(data, sizeof(data));
-        digitalWrite(SSerialTxControl, RS485Receive);
-      }
-      if(manager.headerType() == SCAN_REQUEST_TO_SLAVE && manager.headerFrom() == /*roomcon's address*/)//룸콘으로부터의 스캔 명령
-      {
-        for(int i = 0;i < 10;i++)
-        {
-          data[i] = temp_buf[i];
-        }
-        digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(data, sizeof(data));
-        digitalWrite(SSerialTxControl, RS485Receive);
-        while(1)
-        {
-          if(RS485Serial.available())
-          {
-            num = 0;
-            while(1)
-            {
-              temp = RS485Serial.read();
-              if(temp != -1)
-              {
-                data[num] = temp;
-                num++;
-              }
-              if(num == 10)
-               break;
+      if(manager.headerType() == CONTROL_MESSAGE && manager.headerDestination() == broadcast_address )  //   CONTROL_MESSAGE 메시지 수신
+       {
+          RS485_Write_Read( temp_buf, temp_buf);
+          if(manager.headerTo() == thisAddress && manager.headerFrom() != thisAddress)
+            { 
+              delay(400);
+              manager.send(thisAddress, broadcast_address, thisAddress, broadcast_address, CONTROL_MESSAGE , 0, 0, 0, 1, temp_buf , sizeof(temp_buf));  //  만약 노드가 브로드캐스트 relay 노드이면, 브로드캐스트 전송
             }
-          }
-        }
-        manager.send(thisAddress, /*roomcon's address*/, thisAddress, /*roomcon's address*/, SCAN_RESPONSE_TO_RC, 0, 0, 0, data, sizeof(data));
-      }
-    }
-  }
+        }  //   end of CONTROL_MESSAGE 메시지 수신
+    }  // end of recvData
+  }  // end of available()
 }

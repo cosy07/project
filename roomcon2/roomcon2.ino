@@ -1,7 +1,10 @@
 //<룸콘>
 //하는 일 : 스캔, 사용자가 룸콘 조작시 FCU들에게 명령
+//          master로 부터 control 메시지 수신시 룸콘 업데이트
+
+
 #include <SoftwareSerial.h>
-#include <Datagram.h>
+#include <DatagramForSlave.h>
 #define SSerialRX        5  //Serial Receive pin DI
 #define SSerialTX        6  //Serial Transmit pin RO
 
@@ -10,54 +13,70 @@
 #define RS485Receive     LOW
 
 SoftwareSerial RS485Serial(SSerialRX, SSerialTX); // RX, TX
-ELECHOUSE_CC1101 cc1102;
-Datagram manager(cc1102, 0x0110);
-byte data[10];
-byte fromController[16][10] = {0};
-byte fromRC[16][10] = {0};
-byte temp_buf[40];
-unsigned long startTime = 0;
-byte maxNum;
-int8_t receiveSeqNum = -1;
-int8_t sendSeqNum = 0;
+ELECHOUSE_CC1120 cc1120;
+DatagramForSlave manager(cc1120, 0x0110);
 uint16_t thisAddress;
+uint16_t   master_address = thisAddress & 0xFFE0;
+uint16_t broadcast_address = thisAddress | 0x001F;
+ 
+byte data[10];
+byte array_slave_status[16][10] = {0};
+byte temp_buf[10];
+unsigned long startTime = 0;
+unsigned long last_control_message_time = 0;
+byte number_of_slave;
+
+uint8_t sendSeqNum = 0;
+
 bool receiveScanAck = false;
+bool received_control_message_flag = false;
+ 
 int temp;
+int slave_id;
 byte num = 0;
+int retry = 3;
+
+uint8_t control_message[10][10];
+uint8_t temp_control_message[10];
+byte maxOP = 0;
+byte curOP = 0;
+bool change_number_of_slave = false;
+bool receiveBroadcast = false;
+
+void RS485_Write_Read(uint8_t *write_buf,uint8_t *read_buf)
+{
+  uint8_t num, temp;
+  digitalWrite(SSerialTxControl, RS485Transmit);
+  RS485Serial.write(write_buf, sizeof(write_buf));
+  digitalWrite(SSerialTxControl, RS485Receive);
+  while(1)
+    {
+        if(RS485Serial.available())
+        {
+            num = 0;
+            while(1)
+            {
+              temp = RS485Serial.read();
+              if(temp != -1)
+              {
+                read_buf[num] = temp;
+                num++;
+              }
+              if(num == 10)
+               break;
+            }
+            break;
+        }
+    }       
+}
 void setup()
 {
   Serial.begin(9600);
   pinMode(SSerialTxControl, OUTPUT);  
   digitalWrite(SSerialTxControl, RS485Receive);  // Init Transceiver
   RS485Serial.begin(9600);   // set the data rate 
-  manager.init(55);
-  manager.SetReceive();
-  while(1)
-  {
-    if(RS485Serial.available())
-    {
-      num = 0;
-      while(1)
-      {
-        temp = RS485Serial.read();
-        if(temp != -1)
-        {
-          data[num] = temp;
-          num++;
-        }
-        if(num == 10)
-         break;
-      }
-      if(data[2] > maxNum)
-        maxNum = data[2];
-      else
-        break;
-    }
-  }
-  temp_buf[0] = maxNum;
-  while(manager.sendToWait(thisAddress, /*master's address*/, thisAddress, /*master's address*/, MAX_NUM_TO_MASTER, 0, 0, 0, sendSeqNum, temp_buf, size(temp_buf)));
-    sendSeqNum++;
-  //master에게 maxNum보내서 전체개수 알려줌
+  manager.init(22);
+  manager.SetReceive(); 
   attachInterrupt(0, receiveFromRC, FALLING);
 }
 void receiveFromRC()
@@ -68,18 +87,24 @@ void receiveFromRC()
     num++;
     if(num == 10)
     {
-      if(data[0] == 0xC5)//명령이 오면 slave들에게 바로 보내줌
+      slave_id= data[2];
+      if(slave_id > number_of_slave)
       {
-        manager.send(thisAddress, /*slave's broadcast address*/, thisAddress, /*slave's broadcast address*/, INSTRUCTION_FROM_RC, 0, 0, 0, data, sizeof(data));
+        number_of_slave = slave_id;
+        change_number_of_slave = true;
       }
-      for(int i = 0;i < 10;i++)
-      {
-        fromRC[data[2]][i] = data[i];
-      }
-      if(fromController[data[2]][0] != 0)
+     if(data[0] == 0xC5)//명령이 오면  임시 control_message 배열에 저장한다. 
+      {         
+         for(int i = 0;i < 10;i++)
+              temp_control_message[i] = data[i];
+         last_control_message_time = millis();     
+         received_control_message_flag = true;
+      }       
+      
+      if(array_slave_status[slave_id][0] != 0)
       {
         digitalWrite(SSerialTxControl, RS485Transmit);
-        RS485Serial.write(fromController[data[2]], sizeof(fromController[data[2]]));
+        RS485Serial.write(array_slave_status[slave_id], sizeof(array_slave_status[slave_id]));
         digitalWrite(SSerialTxControl, RS485Receive);
       }
       else
@@ -100,50 +125,91 @@ void receiveFromRC()
 }
 void loop()
 {
+ if (change_number_of_slave== true)  // master에게 slave의 갯수를 전송함.
+  {
+        manager.sendToWait(thisAddress, master_address, thisAddress, master_address, MAX_NUM_OF_SLAVE, 0, 0, 0, 1, &number_of_slave, sizeof(number_of_slave),TIME_HOP);
+        change_number_of_slave = false; 
+   }        
+ if( received_control_message_flag == true && millis() - last_control_message_time > 1000)
+ //  room con의 명령어 메시지는 1초 지난 다음에 명령어 메시지를 저장한다. ( 온도설정시 목표 온도까지 설정하기 위한 버튼을 눌렀을 경우, 메시지 전송을 억제하기위함)
+    {
+       if(maxOP == curOP)
+          {
+            for(int i = 0;i < 10;i++)
+              control_message[maxOP][i] = temp_control_message[i];
+          }
+        else
+          {
+            maxOP++;
+            for(int i = 0;i < 10;i++)
+              control_message[maxOP][i] = temp_control_message[i];
+          }
+        maxOP++;
+        if(maxOP >= 10)
+            maxOP = 0;       
+        received_control_message_flag == false;
+    }
+ 
+  
   manager.SetReceive();
   if(manager.available())
   {
-    if(manager.recvData(temp_buf) && manager.headerTo() == thisAddress && manager.headerFrom() == /*master's address*/)
-    {
-      seqNum++;
-      manager.send(thisAddress, /*master's address*/, thisAddress, /*master's address*/, ACK, 0, 0, 0, temp_buf, sizeof(temp_buf));
-      if(manager.headerType() == SCAN_REQUEST_TO_RC_EXTERNAL && manager.headerSeqNum() > receiveSeqNum)
-      {
-        receiveSeqNum = manager.headerSeqNum();
-        for(int i = 0;i < maxNum;i++)
+    if(manager.recvData(temp_buf) )
+        if ( manager.headerTo() == thisAddress || manager.headerTo() == master_address ||  manager.headerTo() == broadcast_address ) 
         {
-          receiveScanAck = false;
-          for(int j = 0;j < 3;j++)//retry
-          {
-            manager.send(thisAddress, /*slave's address*/, thisAddress, /*slave's address*/, SCAN_REQUEST_TO_SLAVE, 0, 0, 0, fromRC[i], sizeof(fromRC[i]));
-            startTime = millis();
-            while(millis() - starTime < TIME_TERM)
-            {
-              manager.SetReceive();
-              if(manager.available())
-              {
-                if(manager.recvData(temp_buf) && manager.headerTo() == thisAddress && manager.headerFrom() == /*slave's address*/ && manager.headerType() == SCAN_RESPONSE_TO_RC && temp_buf[2] == i)
-                {
-                  receiveScanAck = true;
-                  for(int k = 0;k < 10;k++)
-                  {
-                    fromController[temp_buf[2]][k] = temp_buf[k];
-                  }
-                  break;
-                }
+            if ( manager.headerType() == SCAN_SLAVE_ACK || manager.headerType() == ERROR_MESSAGE || manager.headerType() == SCAN_UPDATE)
+                for(int k = 0;k < 10;k++)
+                     array_slave_status[temp_buf[2]][k] = temp_buf[k];   
+    
+           if ( manager.headerType() == ERROR_MESSAGE  && manager.headerTo() == thisAddress )                       
+               manager.send(thisAddress, manager.headerFrom() , thisAddress, manager.headerFrom(), ACK, 0, 0, 0, 1,&sendSeqNum, sizeof(sendSeqNum));   
+              
+                
+            // slave가 상태의 변화로 인한 업데이트 발생시, 전송함. 이를 수신하여 저장하며, ACK 전송
+           if ( manager.headerType() == SCAN_UPDATE  && manager.headerTo() == thisAddress )          
+               {
+                  RS485_Write_Read( temp_buf, temp_buf);
+                  manager.send(thisAddress, manager.headerFrom() , thisAddress, manager.headerFrom(), ACK, 0, 0, 0, 1,&sendSeqNum, sizeof(sendSeqNum));   
+               }
+               
+           // master가 제어 메시지를 룸콘 및 slave 에게  전송함. 이를 수신하여 룸콘 설정값   변경.
+           if ( manager.headerType() == CONTROL_MESSAGE  && manager.headerTo() == broadcast_address && manager.headerFrom() == master_address)         
+              {              
+                  RS485_Write_Read( temp_buf, temp_buf);
               }
-            }
-            if(receiveScanAck)
-              break;
-          }
-          if(!receiveScanAck)
+      
+            
+      }
+  }    
+  if (maxOP != curOP )
+  {     // if there is any control message from RC, handle it.     
+      startTime = millis();
+      for (int i = 0; i < retry; i++)  // the room con broadcasts a control message, and wait a broadcast from any slave node. If not, then retransmit it.
+       {
+           manager.send(thisAddress, broadcast_address,thisAddress,broadcast_address, CONTROL_MESSAGE, 0, 0, 0, 1, control_message[curOP] , sizeof(control_message[curOP]));   
+           while   (millis() - startTime < TIME_HOP*2)                    
           {
-            fromController[i][0] = 0xEE;
+              manager.SetReceive();
+              if (manager.available() && manager.recvData(temp_buf))
+               {
+                    if ( manager.headerType() == CONTROL_MESSAGE  && manager.headerTo() == broadcast_address  && manager.headerFrom() != master_address )
+                       {
+                          receiveBroadcast = true;
+                          for(int k = 0;k < 10;k++)
+                              array_slave_status[temp_buf[2]][k] = temp_buf[k];    
+                          break;
+                       }
+                    if ( manager.headerType() == CONTROL_MESSAGE  && manager.headerTo() == broadcast_address && manager.headerFrom() == master_address)         
+                      {              
+                          RS485_Write_Read( temp_buf, temp_buf);
+                      }
+               }
           }
-        }
-        if(manager.sendToWait(thisAddress, /*master's address*/, thisAddress, /*master's address*/, SCAN_RESPONSE_TO_MASTER, 0, 0, sendSeqNum, temp_buf, sizeof(temp_buf)))
-          sendSeqNum++;
-      }        
-    }
-  }
+          if (receiveBroadcast) // if there is acontrol message from any slave node, then  store that status.
+                  break;
+       }              
+      curOP++;
+      if (curOP >= 10)
+          curOP = 0;
+  }     
 }
